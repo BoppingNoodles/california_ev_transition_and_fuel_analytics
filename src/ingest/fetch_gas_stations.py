@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append(str(Path(__file__).resolve().parent / "src"))
 from config import CEC_GAS_STATIONS_URL, RAW_DIR, TODAY_STR
 
 PAGE_SIZE = 2000
@@ -25,7 +25,7 @@ def fetch_gas(url: str=CEC_GAS_STATIONS_URL, page_size: int=PAGE_SIZE) -> list[d
             'where': '1=1',
             'outFields': '*',
             'f': 'geojson',
-            'resultRecordcount': page_size,
+            'resultRecordCount': page_size,
             'resultOffset': offset
         }
         resp = requests.get(url, params=params, timeout=60)
