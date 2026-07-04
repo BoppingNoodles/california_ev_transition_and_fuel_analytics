@@ -19,7 +19,7 @@ KEEP_FIELDS = [
 ]
 
 def fetch_afdc_stations(state: str = CA_STATE_ABBR, fuel_type: str = 'ELEC') -> list:
-    """Fetch all matching statiosn from the AFDC API"""
+    """Fetch all matching stations from the AFDC API"""
     params = {
         'api_key': NREL_API_KEY,
         'fuel_type': fuel_type,
@@ -34,3 +34,20 @@ def fetch_afdc_stations(state: str = CA_STATE_ABBR, fuel_type: str = 'ELEC') -> 
     print(f"Fetched {len(stations)} stations from AFDC (station_counts total_results="
           f"{payload.get('station_counts', {}).get('total', 'n/a')})")
     return stations
+def save_raw(stations: list[dict]) -> tuple[Path, Path]:
+    """Save fetched stations for json file and flattened csv file"""
+    RAW_DIR.mkdir(parents=True,exist_ok=True)
+    json_path = RAW_DIR / f"afdc_ev_stations_{TODAY_STR}.json"
+    csv_path = RAW_DIR / f"afdc_ev_stations_{TODAY_STR}.csv"
+
+    with open(json_path, 'w') as f:
+        json.dump(stations, f, indent=2)
+
+    df = pd.json_normalize(stations)
+    present_cols = [c for c in KEEP_FIELDS if c in df.columns]
+    df[present_cols].to_csv(csv_path, index=False)
+
+    print(f"Saved raw JSON : {json_path}")
+    print(f"Saved flat csv: {csv_path}")
+
+    return json_path, csv_path
