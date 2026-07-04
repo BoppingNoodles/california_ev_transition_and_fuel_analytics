@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
-from config import CEC_GAS_STATIONS_URL, RAW_DIR, TODAY_DIR
+from config import CEC_GAS_STATIONS_URL, RAW_DIR, TODAY_STR
 
 PAGE_SIZE = 2000
 
@@ -43,3 +43,27 @@ def fetch_gas(url: str=CEC_GAS_STATIONS_URL, page_size: int=PAGE_SIZE) -> list[d
         offset += page_size
         time.sleep(1)
     return all_features
+
+def save_raw(features: list[dict]) -> tuple[Path, Path]:
+    RAW_DIR.mkdir(parents=True,exist_ok=True)
+    geojson_path = RAW_DIR / f'cec_gas_stations_{TODAY_STR}.geojson'
+    csv_path = RAW_DIR / f'cec_gas_stations_{TODAY_STR}.csv'
+
+    fc = {'type': 'FeatureCollection', 'features': features}
+    with open(geojson_path, 'w') as f:
+        json.dump(fc,f)
+
+    rows = []
+    for feat in features:
+        props = dict(feat.get("properties", {}))
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates", [None, None])
+        props["longitude"] = coords[0]
+        props["latitude"] = coords[1]
+        rows.append(props)
+    df = pd.DataFrame(rows)
+    df.to_csv(csv_path, index=False)
+
+    print(f"Saved raw GeoJson: {geojson_path}")
+    print(f"Saved flat CSV: {csv_path}")
+    return geojson_path, csv_path
