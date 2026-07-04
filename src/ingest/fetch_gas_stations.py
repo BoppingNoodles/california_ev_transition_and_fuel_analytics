@@ -67,3 +67,14 @@ def save_raw(features: list[dict]) -> tuple[Path, Path]:
     print(f"Saved raw GeoJson: {geojson_path}")
     print(f"Saved flat CSV: {csv_path}")
     return geojson_path, csv_path
+def qc_summary(features: list[dict]) -> None:
+    n = len(features)
+    n_valid_geom = sum(
+        1 for f in features
+        if f.get("geometry") and f["geometry"].get("coordinates") not in (None, [None, None])
+    )
+    print("\n--- QC summary ---")
+    print(f"Total records:     {n}")
+    print(f"Valid geometries:  {n_valid_geom} ({n_valid_geom / n:.1%})" if n else "Valid geometries: 0")
+
+    
