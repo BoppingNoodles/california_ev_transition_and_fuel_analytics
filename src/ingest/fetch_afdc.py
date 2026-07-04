@@ -34,8 +34,9 @@ def fetch_afdc_stations(state: str = CA_STATE_ABBR, fuel_type: str = 'ELEC') -> 
     print(f"Fetched {len(stations)} stations from AFDC (station_counts total_results="
           f"{payload.get('station_counts', {}).get('total', 'n/a')})")
     return stations
+
 def save_raw(stations: list[dict]) -> tuple[Path, Path]:
-    """Save fetched stations for json file and flattened csv file"""
+    """Save fetched stations to json file and flattened csv file"""
     RAW_DIR.mkdir(parents=True,exist_ok=True)
     json_path = RAW_DIR / f"afdc_ev_stations_{TODAY_STR}.json"
     csv_path = RAW_DIR / f"afdc_ev_stations_{TODAY_STR}.csv"
@@ -51,3 +52,31 @@ def save_raw(stations: list[dict]) -> tuple[Path, Path]:
     print(f"Saved flat csv: {csv_path}")
 
     return json_path, csv_path
+
+def quality_control(stations: list[dict]) -> None:
+    """Quality control to check pulled data (record count, valid lat/lon rate, non-California rows,
+    access code breakdown, total DCFC ports)"""
+    df = pd.json_normalize(stations)
+    n = len(df)
+    n_valid_geom = df[['latitude', 'longitude']].dropna().shape[0] if n else 0
+    print("\n--- QC Summary ---")
+    print(f" Total records:  {n}")
+    print(f"Valid lat/lon:   {n_valid_geom} ({n_valid_geom / n:.1%})" if n else "Valid lat/lon: 0")
+    if "state" in df.columns:
+        non_ca = df[df['state'] != CA_STATE_ABBR]
+        print(f" Non-California rows:  {len(non_ca)}")
+    if 'access_code' in df.columns:
+        print(f"Access Code Breakdown: \n", df['access_code'].value_counts(dropna=False).to_string())
+    if 'ev_dc_fast_num' in df.columns:
+        dfdc_total = pd.to_numeric(df['ev_dc_fast_num'], errors='coerce').fillna(0).sum()
+        print(f"DFDC ports: {int(dfdc_total)}")
+
+if __name__ == '__main__':
+    t0 = time.time()
+    stations = fetch_afdc_stations()
+    if not stations:
+        print("[WARNING]: Zero AFDC Stations fetched. ")
+        sys.exit(1)
+    save_raw(stations)
+    quality_control(stations)
+    print(f"Time taken: {time.time() - t0:.1f}s")
