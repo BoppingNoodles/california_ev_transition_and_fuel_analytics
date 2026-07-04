@@ -9,8 +9,8 @@ from pathlib import Path
 import requests
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-from config import AFDC_API_KEY, NREL_API_KEY, RAW_DIR, TODAY_STR, CA_STATE_ABBR
+sys.path.append(str(Path(__file__).resolve().parent / "src"))
+from config import AFDC_API_URL, NREL_API_KEY, RAW_DIR, TODAY_STR, CA_STATE_ABBR
 
 KEEP_FIELDS = [
     'id', 'station_name', 'street_address', 'city', 'state','zip',
@@ -24,10 +24,11 @@ def fetch_afdc_stations(state: str = CA_STATE_ABBR, fuel_type: str = 'ELEC') -> 
         'api_key': NREL_API_KEY,
         'fuel_type': fuel_type,
         'state': state,
-        'status': all,
-        'access': all,
+        'status': 'all',
+        'access': 'all',
+        'limit': 'all',
     }
-    resp = requests.get(AFDC_API_KEY, params=params,timeout=60)
+    resp = requests.get(AFDC_API_URL, params=params, timeout=60)
     resp.raise_for_status()
     payload = resp.json()
     stations = payload.get('fuel_stations', [])
