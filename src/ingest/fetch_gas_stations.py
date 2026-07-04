@@ -67,6 +67,7 @@ def save_raw(features: list[dict]) -> tuple[Path, Path]:
     print(f"Saved raw GeoJson: {geojson_path}")
     print(f"Saved flat CSV: {csv_path}")
     return geojson_path, csv_path
+
 def qc_summary(features: list[dict]) -> None:
     n = len(features)
     n_valid_geom = sum(
@@ -77,4 +78,13 @@ def qc_summary(features: list[dict]) -> None:
     print(f"Total records:     {n}")
     print(f"Valid geometries:  {n_valid_geom} ({n_valid_geom / n:.1%})" if n else "Valid geometries: 0")
 
-    
+if __name__ == "__main__":
+    t0 = time.time()
+    print(f"Fetching CEC gas stations (paginated)...")
+    features = fetch_gas()
+    if not features:
+        print(f"[WARNING]: Zero features returned")
+        sys.exit(1)
+    save_raw(features)
+    qc_summary(features)
+    print(f"Time taken: {time.time() - t0:.1f}s")
