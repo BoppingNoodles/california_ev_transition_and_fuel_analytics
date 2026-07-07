@@ -9,7 +9,7 @@ from pathlib import Path
 import requests
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import AFDC_API_URL, NREL_API_KEY, RAW_DIR, TODAY_STR, CA_STATE_ABBR
 
 KEEP_FIELDS = [

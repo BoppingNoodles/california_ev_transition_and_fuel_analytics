@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parent / "src"))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import CEC_GAS_STATIONS_URL, RAW_DIR, TODAY_STR
 
 PAGE_SIZE = 2000
