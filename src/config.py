@@ -40,6 +40,7 @@ CRS_WEB = "EPSG:4326"        # WGS84 — use for web maps / exports
 # API keys / secrets
 # ---------------------------------------------------------------------------
 NREL_API_KEY = os.environ.get("NREL_API_KEY", "DEMO_KEY")
+CENSUS_API_KEY = os.environ.get("CENSUS_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Source endpoints
