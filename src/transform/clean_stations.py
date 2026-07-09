@@ -75,6 +75,55 @@ def clean_ev_station(raw_path: Path) -> GeoDataFrame:
 
     return gdf
     
-def clean_gas_station():
-    gas_geojson = find_latest_files()[1]
-    gas = gpd.read_file(gas_geojson)
+def clean_gas_station(raw_path: Path) -> GeoDataFrame:
+    # Load GeoJson using geopandas
+    gas_df = gpd.read_file(raw_path)
+
+    # Drop null geometries
+    gas_df = gas_df.dropna(subset='geometry')
+
+    # Project to EPSG:3310
+    gas_df = gas_df.to_crs("EPSG:3310")
+
+    # Extract X and Y coordinates from the geometry
+    gas_df['x_round'] = gas_df.geometry.x.round(-1)
+    gas_df['y_round'] = gas_df.geometry.y.round(-1)
+
+    # Drop duplicate rows
+    gas_df = gas_df.drop_duplicates(subset=['x_round', 'y_round'])
+
+    gas_df = gas_df.drop(columns = ['x_round', 'y_round'])
+
+    # Map source-specific names to stable names
+    gas_df = gas_df.rename(
+        columns={
+            'OBJECTID': 'station_id',
+            'Facility_Name': 'name',
+            'Facility_Address': 'address',
+            'City': 'city',
+            'ZIP_Code': 'zip'
+        }
+    )
+
+    # Add source
+    gas_df['source'] = 'cec'
+
+    # Add sourcesnapshot date
+    import re
+    match = re.search(r'\d{8}', raw_path.name)
+    if not match:
+        raise ValueError(f"No date found in {raw_path.name}")
+    gas_df['source_snapshot_date'] = match.group(0)
+
+    keep_cols = [
+        'station_id', 'name', 'address', 'city', 'zip', 'source', 'source_snapshot_date', 'geometry'
+    ]
+
+    gas_df = gas_df[[col for col in keep_cols if col in gas_df.columns]]
+
+    return gas_df
+
+
+
+
+    
