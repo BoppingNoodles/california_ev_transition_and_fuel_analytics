@@ -123,6 +123,19 @@ def clean_gas_station(raw_path: Path) -> GeoDataFrame:
 
     return gas_df
 
+if __name__ == '__main__':
+    ev_df, gas_df = find_latest_files()
+    print(f"Cleaning report:")
+    print('-' * 20 + "\n")
+    print(f"Raw EV Counts: {ev_df.shape[0]}")
+    print(f"Raw Gas Counts: {gas_df.shape[0]}")
+    
+    ev_clean = clean_ev_station(ev_df)
+    gas_clean = clean_gas_station(gas_df)
+
+    print(f"Clean EV Count: {ev_clean.shape[0]}")
+    print(f"Clean Gas Count: {gas_clean.shape[0]}")
+    
 
 
 
