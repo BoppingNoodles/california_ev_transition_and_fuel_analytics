@@ -1,3 +1,7 @@
+"""
+Pulls California 2024 ACS Demographic Data (Name, Total Population, Median Household Income) 
+and California Tract Geometries
+"""
 import sys
 from pathlib import Path
 import requests
@@ -8,6 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import RAW_DIR, TODAY_STR, CENSUS_API_KEY
 
 def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
+    """Fetches California ACS (American Community Survey) 2024 data from API and saves it as CSV"""
     if not CENSUS_API_KEY:
         print("[ERROR]: CENSUS_API_KEY is not set in your .env file or environment.")
         print("Please sign up for a free Census API key at: https://api.census.gov/data/key_signup.html")
@@ -51,6 +56,7 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     return output_path
 
 def download_ca_tract_geometries(output_dir: Path = None) -> Path:
+    """Downloads California Tract Geometries"""
     import urllib.request
     import zipfile
 
