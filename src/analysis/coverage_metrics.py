@@ -53,8 +53,7 @@ def load_gas(dir: Path=PROCESSED_DIR) -> gpd.GeoDataFrame:
 
     return gas_parquet
 
-def align_crs(tracts: gpd.GeoDataFrame, 
-              demographics: pd.DataFrame, 
+def align_crs(tracts: gpd.GeoDataFrame,
               ev: gpd.GeoDataFrame, 
               gas: gpd.GeoDataFrame,
               target_crs: str=CRS_ANALYSIS) -> tuple:
@@ -74,4 +73,15 @@ def align_crs(tracts: gpd.GeoDataFrame,
         assert is_meters, f"{name} CRS is not in meters after projection — check target_crs"
 
     return tracts_proj, ev_proj, gas_proj
+
+if __name__ == "__main__":
+    tracts = load_tracts()
+    demographics = load_demographics()
+    ev = load_ev()
+    gas = load_gas()
+
+    tracts_proj, ev_proj, gas_proj = align_crs(tracts, ev, gas)
+    
+    print("\nStep 1 complete — all layers loaded and aligned to EPSG:3310.")
+
 
