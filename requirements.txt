@@ -13,6 +13,7 @@ pyarrow>=18.0,<25.0
 python-dotenv>=1.0,<2.0
 jupyter>=1.0,<2.0
 ipykernel>=6.29,<7.0
+seaborn>=0.13,<1.0
 
 # Phase 5 (optional interactive app)
 # streamlit>=1.32,<2.0
