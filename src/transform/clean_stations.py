@@ -115,6 +115,10 @@ def clean_gas_station(raw_path: Path) -> GeoDataFrame:
 
     gas_df['source'] = 'cec'
 
+    # Filter out non-California rows
+    gas_df = gas_df[(gas_df.geometry.y > 32.5) & (gas_df.geometry.y < 43.0)]
+    gas_df = gas_df[(gas_df.geometry.x > -125.0) & (gas_df.geometry.x < -113.0)]
+
     # Extract YYYY-MM-DD date from filename
     match = re.search(r'\d{4}-\d{2}-\d{2}', raw_path.name)
     if not match:
