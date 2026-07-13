@@ -53,4 +53,25 @@ def load_gas(dir: Path=PROCESSED_DIR) -> gpd.GeoDataFrame:
 
     return gas_parquet
 
+def align_crs(tracts: gpd.GeoDataFrame, 
+              demographics: pd.DataFrame, 
+              ev: gpd.GeoDataFrame, 
+              gas: gpd.GeoDataFrame,
+              target_crs: str=CRS_ANALYSIS) -> tuple:
+    """Projects tracts and both point layers to shared CRS (meters)"""
+    tracts_proj = tracts.to_crs(target_crs)
+    ev_proj = ev.to_crs(target_crs)
+    gas_proj = ev.to_crs(target_crs)
+
+    print(f"After projection to {target_crs}\n:")
+    print(f"Tracts CRS: {tracts_proj.crs}")
+    print(f"EV CRS: {ev_proj.crs}")
+    print(f"Gas CRS: {gas_proj.crs}")
+
+    for name, gdf in [("tracts", tracts_proj), ("ev", ev_proj), ("gas", gas_proj)]:
+        is_meters = gdf.crs.axis_info[0].unit_name.lower() in ("metre", "meter")
+        print(f"  {name} units in meters: {is_meters}")
+        assert is_meters, f"{name} CRS is not in meters after projection — check target_crs"
+
+    return tracts_proj, ev_proj, gas_proj
 
