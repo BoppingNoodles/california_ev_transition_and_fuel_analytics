@@ -30,9 +30,17 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
 
     if not census_files:
         print(f"No census files found at {dir}")
-        
+
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
     print(f"Loaded {census_csv.name} with length {len(census_csv)}")
 
     return census_csv
+
+def load_ev(dir: Path=PROCESSED_DIR) -> gpd.GeoDataFrame:
+    """Load cleaned and processed EV station data from parquet file"""
+    ev_parquet = gpd.read_parquet(dir / "ev_stations.parquet")
+
+    print(f"Loaded EV parquet file succcessfully at {dir}")
+
+    return ev_parquet
