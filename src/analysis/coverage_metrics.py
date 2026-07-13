@@ -41,6 +41,16 @@ def load_ev(dir: Path=PROCESSED_DIR) -> gpd.GeoDataFrame:
     """Load cleaned and processed EV station data from parquet file"""
     ev_parquet = gpd.read_parquet(dir / "ev_stations.parquet")
 
-    print(f"Loaded EV parquet file succcessfully at {dir}")
+    print(f"Loaded EV parquet file succcessfully at {dir} with size {len(ev_parquet)}")
 
     return ev_parquet
+
+def load_gas(dir: Path=PROCESSED_DIR) -> gpd.GeoDataFrame:
+    """Load cleaned and processed gas station data from parquet file"""
+    gas_parquet = gpd.read_parquet(dir / "gas_stations.parquet")
+
+    print(f"Loaded Gas parquet file successfully at {dir} with size {len(gas_parquet)}")
+
+    return gas_parquet
+
+
