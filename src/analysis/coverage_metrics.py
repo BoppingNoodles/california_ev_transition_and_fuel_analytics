@@ -104,6 +104,31 @@ def prepare_tract_base(tracts_proj: gpd.GeoDataFrame, demo: pd.DataFrame) -> gpd
 
     return tract_base
 
+def agg_ev(tracts_proj: gpd.GeoDataFrame, ev_proj: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Spatially join EV infrastructure to tracts and aggregate port counts per tract"""
+    # Spatially join EV stations to tracts
+    joined = gpd.sjoin(ev_proj, tracts_proj[['GEOID', 'geometry']], how='inner', predicate='within')
+
+    print(f"EV stations matched to a tract: {len(joined)} / {len(ev_proj)}")
+
+    # Group by tract GEOID
+    agg = joined.groupby('GEOID').agg(
+        ev_station_count=('station_id' if 'station_id' in joined.columns else 'id', 'count')
+        level2_ports=('level2_ports', 'sum'),
+        dcfc_ports=('dcfc_ports','sum'),
+        total_ev_ports=('total_ev_ports', 'sum'),
+    ).reset_index()
+
+    # Join aggregate back onto all tracts
+    tracts_with_ev = tracts_proj[['GEOID']].merge(agg, on='GEOID', how='left')
+    fill_cols = ['ev_station_count', 'level2_ports', 'dcfc_ports', 'total_ev_ports']
+    tracts_with_ev[fill_cols] = tracts_with_ev[fill_cols].fillna(0).astype(int)
+
+    print(f"Number of tracts with zero EV stations: {(tracts_with_ev['ev_station_count'] == 0).sum()}")
+
+    return tracts_with_ev
+
+
 
 if __name__ == "__main__":
     tracts = load_tracts()
