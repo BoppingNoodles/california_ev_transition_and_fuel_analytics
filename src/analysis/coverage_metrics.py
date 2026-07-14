@@ -128,6 +128,26 @@ def agg_ev(tracts_proj: gpd.GeoDataFrame, ev_proj: gpd.GeoDataFrame) -> pd.DataF
 
     return tracts_with_ev
 
+def agg_gas(tracts_proj: gpd.GeoDataFrame, gas_proj: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Spatially join Gas infrastructure to tracts"""
+    joined = gpd.sjoin(gas_proj, tracts_proj[['GEOID', 'geometry']], how='inner',predicate='within')
+
+    print(f"Gas stations matched to a tract: {len(joined)} / {len(gas_proj)}")
+
+    # Group by tract GEOID and count stations per tract
+    agg = joined.groupby('GEOID').agg(
+        gas_station_count=('station_id' if 'station_id' in joined.columns else 'id', 'count')
+    ).reset_index()
+
+    # Join counts back to all tracts
+    tracts_with_gas = tracts_proj[['GEOID']].merge(agg, on='GEOID', how='left')
+    fill_cols = ['gas_station_count']
+    tracts_with_gas[fill_cols] = tracts_with_gas[fill_cols].fillna(0).astype(int)
+
+    print(f"Number of tracts with zero gas stations: {(tracts_with_gas['gas_station_count'] == 0).sum()}")
+
+    return tracts_with_gas
+
 
 
 if __name__ == "__main__":
