@@ -10,7 +10,7 @@ import geopandas as gpd
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from config import PROCESSED_DIR, EXTERNAL_DIR, RAW_DIR, CRS_ANALYSIS
 
-def load_tracts(dir: Path=None) -> gpd.GeoDataFrame:
+def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     """Load California Census Tract geometries"""
     if not tracts_dir:
         tracts_dir = EXTERNAL_DIR / "california_tracts"
@@ -19,7 +19,7 @@ def load_tracts(dir: Path=None) -> gpd.GeoDataFrame:
     if shp_files is None:
         print(f"No shp files found at {tracts_dir}")
     
-    tracts = gdp.read_files(shp_files[0])
+    tracts = gpd.read_files(shp_files[0])
     print(f"Found {len(tracts)} at {tracts_dir}")
 
     return tracts
@@ -33,7 +33,7 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
-    print(f"Loaded {census_csv.name} with length {len(census_csv)}")
+    print(f"Loaded {census_csv[-1].name} with length {len(census_csv)}")
 
     return census_csv
 
@@ -60,7 +60,7 @@ def align_crs(tracts: gpd.GeoDataFrame,
     """Projects tracts and both point layers to shared CRS (meters)"""
     tracts_proj = tracts.to_crs(target_crs)
     ev_proj = ev.to_crs(target_crs)
-    gas_proj = ev.to_crs(target_crs)
+    gas_proj = gas.to_crs(target_crs)
 
     print(f"After projection to {target_crs}\n:")
     print(f"Tracts CRS: {tracts_proj.crs}")
@@ -82,7 +82,7 @@ def prepare_tract_base(tracts_proj: gpd.GeoDataFrame, demo: pd.DataFrame) -> gpd
     print(f"Tract base: {len(tract_base)} tracts")
 
     # Join ACS fields onto tracts
-    tract_base = tracts_proj.merge(
+    tract_base = tract_base.merge(
         demo[['GEOID', 'total_population', 'total_income']],
         on='GEOID',
         how='left'
@@ -113,7 +113,7 @@ def agg_ev(tracts_proj: gpd.GeoDataFrame, ev_proj: gpd.GeoDataFrame) -> pd.DataF
 
     # Group by tract GEOID
     agg = joined.groupby('GEOID').agg(
-        ev_station_count=('station_id' if 'station_id' in joined.columns else 'id', 'count')
+        ev_station_count=('station_id' if 'station_id' in joined.columns else 'id', 'count'),
         level2_ports=('level2_ports', 'sum'),
         dcfc_ports=('dcfc_ports','sum'),
         total_ev_ports=('total_ev_ports', 'sum'),
