@@ -74,6 +74,37 @@ def align_crs(tracts: gpd.GeoDataFrame,
 
     return tracts_proj, ev_proj, gas_proj
 
+def prepare_tract_base(tracts_proj: gpd.GeoDataFrame, demo: pd.DataFrame) -> gpd.GeoDataFrame:
+    """Build the tract-level base table: GEOID, geometry, demographics, area, density"""
+
+    # Keep only GEOID and geometry from the tract shapefile
+    tract_base = tracts_proj[['GEOID', 'geometry']].copy()
+    print(f"Tract base: {len(tract_base)} tracts")
+
+    # Join ACS fields onto tracts
+    tract_base = tracts_proj.merge(
+        demo[['GEOID', 'total_population', 'total_income']],
+        on='GEOID',
+        how='left'
+    )
+
+    # Calculate tract area in square kilometers
+    tract_base['tract_area_square_km'] = tract_base.geometry.area / 1_000_000
+
+    # Calculate population density (people per square km)
+    tract_base['population_density'] = tract_base['total_population'] / tract_base['tract_area_square_km']
+    tract_base['population_density'] = tract_base['population_density'].replace([float('-inf'), -float('inf')], None)
+
+    # Flag zero-population and missing population tracts
+    tract_base['zero_population'] = tract_base['total_population'] == 0
+    tract_base['missing_population'] = tract_base['zero_population'].isna()
+
+    print(f"Number of tracts with zero population: {tract_base['zero_population'].sum()}")
+    print(f"Number of tracts with missing population: {tract_base['total_population'].sum()}")
+
+    return tract_base
+
+
 if __name__ == "__main__":
     tracts = load_tracts()
     demographics = load_demographics()
