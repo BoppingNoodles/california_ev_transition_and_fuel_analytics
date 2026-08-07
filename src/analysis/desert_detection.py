@@ -7,7 +7,7 @@ The output is a geojson
 
 import sys
 from pathlib import Path 
-import panadas as pd
+import pandas as pd
 import geopandas as gpd
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -21,7 +21,7 @@ def load_coverage_metrics(
     if path is None:
         path = PROCESSED_DIR / "tract_coverage_metrics.parquet"
     
-    gdf = gdf.read_parquet(path)
+    gdf = gpd.read_parquet(path)
     print(f"Loaded coverage metrics for {len(gdf)} tracts form {path.name}")
 
     return gdf
@@ -35,4 +35,27 @@ def normalize_coverage_metrics(
     s_max = series.max()
     if s_max == s_min:
         return pd.Series(0.5, index=series.index)
-    return (series - s_min)  (s_max - s_min)
+    return (series - s_min) / (s_max - s_min)
+
+### Build the desert score components
+def compute_desert_components(
+    gdf: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """Calculates the 4 normalized component columns on a 0-1 scale"""
+
+    df = gdf.copy()
+
+    # Gas access component
+    df['comp_gas_access'] = normalize_coverage_metrics(df['gas_access_count_2km'])
+
+    # Population density
+    df['comp_pop_density'] = normalize_coverage_metrics(df['population_density'])
+
+    # EV gap component
+    norm_ev_supply = normalize_coverage_metrics(df['ports_per_sq_km'])
+    df['comp_ev_gap'] = 1.0 - norm_ev_supply 
+
+    # DCFC distance component
+    df['comp_dcfc_distance'] = normalize_coverage_metrics(df['nearest_dcfc_km'])
+
+    return df
