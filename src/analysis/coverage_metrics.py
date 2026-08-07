@@ -10,7 +10,10 @@ import geopandas as gpd
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, EXTERNAL_DIR, RAW_DIR, CRS_ANALYSIS
 
+<<<<<<< HEAD
 ### Load and align CRS
+=======
+>>>>>>> efa26cd20a5c4a2ec804b44ff0f49937cea37a69
 def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     """Load California Census Tract geometries"""
     if not tracts_dir:
@@ -20,8 +23,13 @@ def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     if not shp_files:
         print(f"No shp files found at {tracts_dir}")
     
+<<<<<<< HEAD
     tracts = gpd.read_file(shp_files[0])
     print(f"Found {len(tracts)} tracts at {tracts_dir}")
+=======
+    tracts = gpd.read_files(shp_files[0])
+    print(f"Found {len(tracts)} at {tracts_dir}")
+>>>>>>> efa26cd20a5c4a2ec804b44ff0f49937cea37a69
 
     return tracts
 
@@ -34,7 +42,11 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
+<<<<<<< HEAD
     print(f"Loaded {census_files[-1].name} with {len(census_csv)} tracts")
+=======
+    print(f"Loaded {census_csv[-1].name} with length {len(census_csv)}")
+>>>>>>> efa26cd20a5c4a2ec804b44ff0f49937cea37a69
 
     return census_csv
 
