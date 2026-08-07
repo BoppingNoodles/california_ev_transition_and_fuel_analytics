@@ -171,7 +171,7 @@ def agg_gas(
     # Group by GEOID
     gas_agg = joined.groupby("GEOID").agg(
         gas_station_count=("station_id", "count")
-    )
+    ).reset_index(0)
 
     # Join counts back to all tracts
     tract_base = tract_base.merge(gas_agg,on='GEOID', how='left')
@@ -182,6 +182,40 @@ def agg_gas(
 
     return tract_base
 
+### Calculate gas access near centroids
+def gas_access(
+    gas: gpd.GeoDataFrame,
+    tract_base: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """Calculates gas access near tract centroids (within 2 kilometers of each centroid)"""
+
+    # Create tract centroids geometries in EPSG:3310
+    centroids = tract_base.copy()
+    centroids['geometry'] = tract_base.geometry.centroid
+
+    # Create a 2 km buffer around each centroid
+    buffer = centroids.copy()
+    buffered['geometry'] = centroids.geometry.buffer(2000) # in meters
+
+    # Spatial join
+    joined = gpd.sjoin(tract_base,buffer,predicate="intersects")
+
+    # Count nearby gas stations
+    gas_counts = joined.groupby('GEOID').agg(
+        gas_access_count_2km('station_id', 'count')
+    ).reset_index()
+
+    # Merge back to tract base
+    tract_base = tract_base.merge(gas_counts, on='GEOID', how='left')
+
+    # Fill in missing counts with 0
+    fill_cols = ['gas_access_count_2km']
+    tract_base[fill_cols] = tract_base[fill_cols].fillna(0)
+
+    # Quality checks
+    print(f"How many times there are less gas stations within 2 km than total gas stations in tract: {sum(tract_base['gas_access_count_2km'] < tract_base['gas_station_count'])}")
+
+    return tract_base
 
 if __name__ == "__main__":
     tracts = load_tracts()
