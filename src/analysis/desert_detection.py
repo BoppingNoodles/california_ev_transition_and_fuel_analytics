@@ -59,3 +59,25 @@ def compute_desert_components(
     df['comp_dcfc_distance'] = normalize_coverage_metrics(df['nearest_dcfc_km'])
 
     return df
+
+### Compute final score
+def compute_desert_score(
+    gdf: gpd.GeoDataFrame,
+    w_gas: float=0.25,
+    w_pop: float=0.25,
+    w_ev: float=0.35,
+    w_dcfc: float=0.15
+) -> gpd.GeoDataFrame:
+    """Computes the composite desert score (0-100) from the 4 normalized components"""
+    df = gdf.copy()
+
+    # Score
+    df['desert_score'] = 100.0 * (
+        w_gas * df['comp_gas_access'] +
+        w_pop * df['comp_pop_density'] + 
+        w_ev * df['comp_ev_gap'] +
+        w_dcfc * df['comp_dcfc_distance']
+    )
+    df['desert_score'] = df['desert_score'].round(2)
+
+    return df
