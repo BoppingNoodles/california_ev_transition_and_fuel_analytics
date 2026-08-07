@@ -7,9 +7,10 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, EXTERNAL_DIR, RAW_DIR, CRS_ANALYSIS
 
+### Load and align CRS
 def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     """Load California Census Tract geometries"""
     if not tracts_dir:
@@ -33,7 +34,7 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
-    print(f"Loaded {census_csv.name} with length {len(census_csv)}")
+    print(f"Loaded {census_files[-1].name} with {len(census_csv)} tracts")
 
     return census_csv
 
@@ -74,6 +75,58 @@ def align_crs(tracts: gpd.GeoDataFrame,
 
     return tracts_proj, ev_proj, gas_proj
 
+### Prepare tract base
+def prepare_tract_base(
+    tracts: gpd.GeoDataFrame,
+    demographics: pd.DataFrame,
+) -> gpd.GeoDataFrame:
+    """
+    Join ACS demographics onto projected tract geometries, compute
+    area and population density, and flag zero/null-population tracts.
+    """
+    # Keep only the columns we need from the tract shapefile
+    tract_base = tracts[["GEOID", "geometry"]].copy()
+
+    # Ensure GEOID is a string on both sides to prevent silent join mismatches
+    tract_base["GEOID"] = tract_base["GEOID"].astype(str)
+    demographics = demographics.copy()
+    demographics["GEOID"] = demographics["GEOID"].astype(str)
+
+    n_before = len(tract_base)
+
+    # Left-join so every tract geometry is preserved even if ACS data is missing
+    acs_cols = ["GEOID", "total_population", "median_income"]
+    tract_base = tract_base.merge(
+        demographics[acs_cols], on="GEOID", how="left"
+    )
+
+    n_after = len(tract_base)
+    n_matched = tract_base["total_population"].notna().sum()
+    print(f"Tracts before join : {n_before}")
+    print(f"Tracts after join  : {n_after}")
+    print(f"Tracts with ACS pop: {n_matched}  |  missing: {n_after - n_matched}")
+
+    # Area in square kilometres (geometry is in EPSG:3310 metres)
+    tract_base["tract_area_sq_km"] = tract_base.geometry.area / 1_000_000
+
+    # Population density — guard against zero/null area
+    tract_base["population_density"] = (
+        tract_base["total_population"] / tract_base["tract_area_sq_km"]
+    ).where(tract_base["tract_area_sq_km"] > 0, other=None)
+
+    # Flags for downstream handling
+    tract_base["missing_population_flag"] = tract_base["total_population"].isna()
+    tract_base["zero_population_flag"] = (
+        tract_base["total_population"].fillna(0) == 0
+    )
+
+    n_zero = tract_base["zero_population_flag"].sum()
+    n_missing = tract_base["missing_population_flag"].sum()
+    print(f"Zero-population tracts  : {n_zero}")
+    print(f"Missing-population tracts: {n_missing}")
+
+    return tract_base
+
 
 
 if __name__ == "__main__":
@@ -83,7 +136,10 @@ if __name__ == "__main__":
     gas = load_gas()
 
     tracts_proj, ev_proj, gas_proj = align_crs(tracts, ev, gas)
-    
     print("\nStep 1 complete — all layers loaded and aligned to EPSG:3310.")
+
+    tract_base = prepare_tract_base(tracts_proj, demographics)
+    print("\nStep 2 complete — tract base prepared with demographics and area metrics.")
+    print(tract_base[["GEOID", "total_population", "tract_area_sq_km", "population_density"]].head())
 
 
