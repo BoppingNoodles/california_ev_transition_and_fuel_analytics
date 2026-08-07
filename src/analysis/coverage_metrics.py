@@ -195,14 +195,14 @@ def gas_access(
 
     # Create a 2 km buffer around each centroid
     buffer = centroids.copy()
-    buffered['geometry'] = centroids.geometry.buffer(2000) # in meters
+    buffer['geometry'] = centroids.geometry.buffer(2000) # in meters
 
     # Spatial join
-    joined = gpd.sjoin(tract_base,buffer,predicate="intersects")
+    joined = gpd.sjoin(gas,buffer,predicate="intersects")
 
     # Count nearby gas stations
     gas_counts = joined.groupby('GEOID').agg(
-        gas_access_count_2km('station_id', 'count')
+        gas_access_count_2km=('station_id', 'count')
     ).reset_index()
 
     # Merge back to tract base
@@ -216,6 +216,43 @@ def gas_access(
     print(f"How many times there are less gas stations within 2 km than total gas stations in tract: {sum(tract_base['gas_access_count_2km'] < tract_base['gas_station_count'])}")
 
     return tract_base
+
+### Calculate nearest DCFC distance
+def calculate_nearest_dcfc(
+    ev: gpd.GeoDataFrame,
+    tract_base: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """Calculates nearest DCFC distance from each tract centroid"""
+
+    # Filter EV stations where dcfc_ports > 0
+    ev_stations = ev.copy()
+    ev_stations = ev_stations[ev_stations['dcfc_ports'] > 0]
+
+    # Get centroid of each tract
+    centroids = tract_base.copy()
+    centroids['geometry'] = tract_base.geometry.centroid
+
+    # Calculate nearest neighbor distance using sjoin_nearest
+    nearest = gpd.sjoin_nearest(
+        centroids[['GEOID', 'geometry']],
+        ev_stations[['geometry']],
+        how='left',
+        distance_col='distance_meters'
+    )
+
+    # Convert distance from meters to kilometers
+    nearest['nearest_dcfc_km'] = nearest['distance_meters'] / 1000.0
+    nearest = nearest.drop_duplicates(subset=['GEOID'])
+
+    # Merge back onto tract_base
+    tract_base = tract_base.merge(
+        nearest[['GEOID', 'nearest_dcfc_km']],
+        on='GEOID',
+        how='left'
+    )
+
+    return tract_base
+
 
 if __name__ == "__main__":
     tracts = load_tracts()
