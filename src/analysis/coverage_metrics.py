@@ -253,20 +253,83 @@ def calculate_nearest_dcfc(
 
     return tract_base
 
+### Create final metric columns
+def create_final_metrics(
+    tract_base: gpd.GeoDataFrame,
+) -> gpd.GeoDataFrame:
+    """Creates the final metric columns: 
+        - `ports_per_sq_km`: EV ports per square kilometer
+        - `ports_per_1000`: EV ports per 1000 people
+        - `dcfc_per_1000`: DCFC ports per 1000 people
+    """
+    tract = tract_base.copy()
+
+    tract['ports_per_sq_km'] = (tract['total_ev_ports'] / tract['tract_area_sq_km']).where(tract['tract_area_sq_km'] > 0, 0.0)
+    tract['ports_per_1000'] = (tract['total_ev_ports'] / tract['total_population'] * 1000.0).where(tract['total_population'] > 0, 0.0)
+    tract['dcfc_per_1000'] = (tract['dcfc_ports'] / tract['total_population'] * 1000.0).where(tract['total_population'] > 0, 0.0)
+
+    return tract
+
+### Save intermediate metrics
+def save_metrics(
+    tract_base: gpd.GeoDataFrame,
+    output_path: Path = None
+) -> Path:
+    """Saves the completed tract coverage metrics GeoDataFrame to Parquet format"""
+    
+    if output_path is None:
+        output_path = PROCESSED_DIR / "tract_coverage_metrics.parquet"
+
+    tract_base.to_parquet(output_path)
+    print(f"Saved tract coverage metrics to {output_path}")
+
+    return output_path
 
 if __name__ == "__main__":
+    print("--- Starting Phase 3.1: Tract Coverage Metrics Calculation ---")
+
+    # Step 1: Load and align CRS
     tracts = load_tracts()
     demographics = load_demographics()
     ev = load_ev()
     gas = load_gas()
-
     tracts_proj, ev_proj, gas_proj = align_crs(tracts, ev, gas)
     print("\nStep 1 complete — all layers loaded and aligned to EPSG:3310.")
 
+    # Step 2: Prepare tract base
     tract_base = prepare_tract_base(tracts_proj, demographics)
     print("\nStep 2 complete — tract base prepared with demographics and area metrics.")
-    print(tract_base[["GEOID", "total_population", "tract_area_sq_km", "population_density"]].head())
+    print(tract_base[["GEOID", "total_population", "tract_area_sq_km", "population_density"]].head(2))
 
+    # Step 3: Aggregate EV infrastructure
     tract_base = agg_ev(ev_proj, tract_base)
     print("\nStep 3 complete — EV infrastructure aggregated to tracts.")
-    print(tract_base[['GEOID', 'ev_station_count', 'level2_ports', 'dcfc_ports', 'total_ev_ports']].head())
+    print(tract_base[["GEOID", "ev_station_count", "total_ev_ports", "dcfc_ports"]].head(2))
+
+    # Step 4: Aggregate gas infrastructure
+    tract_base = agg_gas(gas_proj, tract_base)
+    print("\nStep 4 complete — Gas infrastructure aggregated to tracts.")
+    print(tract_base[["GEOID", "gas_station_count"]].head(2))
+
+    # Step 5: Gas access near tract centroids (2 km buffer)
+    tract_base = gas_access(gas_proj, tract_base)
+    print("\nStep 5 complete — Gas access within 2 km of centroids calculated.")
+    print(tract_base[["GEOID", "gas_access_count_2km"]].head(2))
+
+    # Step 6: Calculate distance to nearest DCFC station
+    tract_base = calculate_nearest_dcfc(ev_proj, tract_base)
+    print("\nStep 6 complete — Nearest DCFC distance calculated.")
+    print(tract_base[["GEOID", "nearest_dcfc_km"]].head(2))
+
+    # Step 7: Create final metric columns
+    tract_base = create_final_metrics(tract_base)
+    print("\nStep 7 complete — Final density and population rates computed.")
+    print(tract_base[["GEOID", "ports_per_sq_km", "ports_per_1000", "dcfc_per_1000"]].head(2))
+
+    # Step 8: Save intermediate metrics file
+    print("\nStep 8: Saving intermediate metrics...")
+    save_metrics(tract_base)
+
+    print("\nPhase 3.1 pipeline executed successfully.")
+
+
