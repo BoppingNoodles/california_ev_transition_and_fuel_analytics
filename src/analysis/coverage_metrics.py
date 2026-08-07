@@ -158,6 +158,30 @@ def agg_ev(
 
     return tract_base
 
+### Aggregate gas infrastructure
+def agg_gas(
+    gas: gpd.GeoDataFrame,
+    tract_base: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """Aggregate gas infrastructure to California tract base"""
+
+    # Spatially join gas stations to tracts
+    joined = gpd.sjoin(gas,tract_base,how='left', predicate='within')
+
+    # Group by GEOID
+    gas_agg = joined.groupby("GEOID").agg(
+        gas_station_count=("station_id", "count")
+    )
+
+    # Join counts back to all tracts
+    tract_base = tract_base.merge(gas_agg,on='GEOID', how='left')
+    
+    # Fill missing gas counts with 0
+    fill_cols = ['gas_station_count']
+    tract_base[fill_cols] = tract_base[fill_cols].fillna(0)
+
+    return tract_base
+
 
 if __name__ == "__main__":
     tracts = load_tracts()
