@@ -10,17 +10,17 @@ import geopandas as gpd
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from config import PROCESSED_DIR, EXTERNAL_DIR, RAW_DIR, CRS_ANALYSIS
 
-def load_tracts(dir: Path=None) -> gpd.GeoDataFrame:
+def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     """Load California Census Tract geometries"""
     if not tracts_dir:
         tracts_dir = EXTERNAL_DIR / "california_tracts"
     
     shp_files = list(tracts_dir.glob('*.shp'))
-    if shp_files is None:
+    if not shp_files:
         print(f"No shp files found at {tracts_dir}")
     
-    tracts = gdp.read_files(shp_files[0])
-    print(f"Found {len(tracts)} at {tracts_dir}")
+    tracts = gpd.read_file(shp_files[0])
+    print(f"Found {len(tracts)} tracts at {tracts_dir}")
 
     return tracts
 
@@ -60,7 +60,7 @@ def align_crs(tracts: gpd.GeoDataFrame,
     """Projects tracts and both point layers to shared CRS (meters)"""
     tracts_proj = tracts.to_crs(target_crs)
     ev_proj = ev.to_crs(target_crs)
-    gas_proj = ev.to_crs(target_crs)
+    gas_proj = gas.to_crs(target_crs)
 
     print(f"After projection to {target_crs}\n:")
     print(f"Tracts CRS: {tracts_proj.crs}")
@@ -73,6 +73,8 @@ def align_crs(tracts: gpd.GeoDataFrame,
         assert is_meters, f"{name} CRS is not in meters after projection — check target_crs"
 
     return tracts_proj, ev_proj, gas_proj
+
+
 
 if __name__ == "__main__":
     tracts = load_tracts()
