@@ -27,3 +27,12 @@ def load_coverage_metrics(
     return gdf
 
 ### Normalize coverage metrics
+def normalize_coverage_metrics(
+    series: pd.Series
+) -> pd.Series:
+    """Scales a Pandas series to 0-1 range"""
+    s_min = series.min()
+    s_max = series.max()
+    if s_max == s_min:
+        return pd.Series(0.5, index=series.index)
+    return (series - s_min)  (s_max - s_min)
