@@ -127,6 +127,36 @@ def prepare_tract_base(
 
     return tract_base
 
+### Aggregate EV infrastructure
+def agg_ev(
+    ev: gpd.GeoDataFrame,
+    tract_base: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """Aggregate EV infrastructure to California tracts"""
+
+    # Spatially join EV stations to tracts
+    joined = gpd.sjoin(ev,tract_base, how='left',predicate='within')
+
+    # Group by tract GEOID
+    ev_agg = joined.groupby('GEOID').agg(
+        ev_station_count=("id", "count"),
+        level2_ports=("level2_ports", "sum"),
+        dcfc_ports=("dcfc_ports", "sum"),
+        total_ev_ports=("total_ev_ports", "sum")
+    ).reset_index()
+
+    # Join back to all tracts
+    tract_base = tract_base.merge(ev_agg,on='GEOID', how='left')
+
+    # Fill missing infrastructure counts with 0 (fillna must be assigned back)
+    fill_cols = ['ev_station_count', 'level2_ports', 'dcfc_ports', 'total_ev_ports']
+    tract_base[fill_cols] = tract_base[fill_cols].fillna(0)
+
+    # Quality Check
+    print(f"EV stations in raw data: {len(ev)}")
+    print(f"EV stations after joining with tracts: {tract_base['ev_station_count'].sum()}")
+
+    return tract_base
 
 
 if __name__ == "__main__":
@@ -142,4 +172,6 @@ if __name__ == "__main__":
     print("\nStep 2 complete — tract base prepared with demographics and area metrics.")
     print(tract_base[["GEOID", "total_population", "tract_area_sq_km", "population_density"]].head())
 
-
+    tract_base = agg_ev(ev_proj, tract_base)
+    print("\nStep 3 complete — EV infrastructure aggregated to tracts.")
+    print(tract_base[['GEOID', 'ev_station_count', 'level2_ports', 'dcfc_ports', 'total_ev_ports']].head())
