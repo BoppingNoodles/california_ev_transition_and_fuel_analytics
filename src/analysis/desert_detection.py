@@ -81,3 +81,24 @@ def compute_desert_score(
     df['desert_score'] = df['desert_score'].round(2)
 
     return df
+
+### Add severity labels
+def add_severity_labels(
+    gdf: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Adds severity labels to respective desert score
+        - `severe_desert`: `desert_score` >= 75
+        - `moderate_desert`: `desert_score` >= 50
+        - `adequate`: `desert_score` < 50
+        
+    Exports to GeoJSON
+    """
+
+    df = gdf.copy()
+
+    df['severity_score'] = 'adequate'
+    df.loc[df['desert_score'] >= 75, 'severity_score'] = 'severe_desert'
+    df.loc[df['desert_score'] >= 50, 'severity_score'] = 'moderate_desert'
+    
+    return df
