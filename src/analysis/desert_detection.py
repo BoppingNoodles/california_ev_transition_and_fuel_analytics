@@ -89,16 +89,49 @@ def add_severity_labels(
     """
     Adds severity labels to respective desert score
         - `severe_desert`: `desert_score` >= 75
-        - `moderate_desert`: `desert_score` >= 50
+        - `moderate_desert`: 50 <= `desert_score` < 75
         - `adequate`: `desert_score` < 50
-        
-    Exports to GeoJSON
     """
-
     df = gdf.copy()
 
     df['severity_score'] = 'adequate'
+    df.loc[(df['desert_score'] >= 50) & (df['desert_score'] < 75), 'severity_score'] = 'moderate_desert'
     df.loc[df['desert_score'] >= 75, 'severity_score'] = 'severe_desert'
-    df.loc[df['desert_score'] >= 50, 'severity_score'] = 'moderate_desert'
     
     return df
+
+### Saved scored tracts to GeoJSON
+def export_desert_geojson(
+    gdf: gpd.GeoDataFrame,
+    output_path: Path=None
+) -> Path:
+    """Reprojects to EPSG:4326 and exports the charging desert layer to GeoJSON"""
+    if output_path is None:
+        output_path = GEOJSON_DIR / "charging_deserts.geojson"
+
+    gdf_web = gdf.to_crs(CRS_WEB)
+    
+    gdf_web.to_file(output_path, driver="GeoJSON")
+    print(f"Exported charging deserts GeoJSON to {output_path}")
+
+    return output_path
+
+if __name__ == "__main__":
+    print("--- Starting Desert Detection ---")
+
+    metrics_gdf = load_coverage_metrics()
+    
+    components_gdf = compute_desert_components(metrics_gdf)
+    print("Computed normalized component scores.")
+
+    scored_gdf = compute_desert_score(components_gdf)
+    print("Calculated composite desert scores.")
+
+    labeled_gdf = add_severity_labels(scored_gdf)
+    print("Severity distribution:")
+    print(labeled_gdf['severity_score'].value_counts())
+
+    export_desert_geojson(labeled_gdf)
+    print("Phase 3.2 pipeline complete.")
+
+
