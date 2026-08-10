@@ -13,7 +13,7 @@ import geopandas as gpd
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, GEOJSON_DIR, TABLES_DIR, CRS_ANALYSIS
 
-# Load required layers
+### Load required layers
 def load_data(
     gas_path: Path=None,
     ev_path: Path=None,
@@ -46,7 +46,7 @@ def load_data(
 
     return gas_gdf, ev_gdf, deserts_gdf
 
-# Attach gas stations to tracts
+### Attach gas stations to tracts
 def gas_to_tracts(
     gas: gpd.GeoDataFrame,
     tract_base: gpd.GeoDataFrame
@@ -71,5 +71,39 @@ def gas_to_tracts(
 
     return gas_with_tract
 
+### Calculate nearest DCFC distance
+def nearest_dcfc(
+    ev: gpd.GeoDataFrame,
+    gas: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Filters EV stations to DCFC locations and calculates the nearest DCFC distance for each gas station
+    """
+
+    # Filter EV stations to DCFC locations
+    dcfc = ev.copy()
+    dcfc = dcfc[dcfc['dcfc_ports'] > 0]
+
+    # Calculate nearest DCFC distance for each gas station
+    nearest = gpd.sjoin(
+        gas[['station_id', 'geometry']],
+        dcfc[['geometry']],
+        how='left',
+        distance_col='distance_meters'
+    )
+
+    # Convert to kilometers
+    nearest['nearest_dcfc_km'] = nearest['distance_meters'] / 1000.0
+
+    # Drop duplicates
+    nearest = nearest.drop_duplicates(subset=['station_id'])
+    # Merge to gas
+    gas = gas.merge(
+        nearest[['station_id', 'nearest_dcfc_km']],
+        on='station_id',
+        how='left'
+    )
+    
+    return gas
 
 
