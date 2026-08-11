@@ -258,8 +258,11 @@ if __name__ == "__main__":
     print("Calculating final conversion scores...")
     gas = calculate_gas_conv(gas)   
 
-    gas.to_parquet(PROCESSED_DIR / "conversion_candidates.paruqet")
-    gas.to_csv(TABLES_DIR / "conversion_candidates", index=False)
+    save_path = PROCESSED_DIR / "conversion_candidates.parquet"
+    gas.to_parquet(save_path)
+    gas.to_csv(TABLES_DIR / "conversion_candidates.csv", index=False)
+
+    print(f"Successfully saved conversion candidates parquet file to {save_path}")
 
 
 
