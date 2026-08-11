@@ -21,12 +21,12 @@ def load_data(
     ev_path: Path=None,
     deserts_path: Path=None,
     highways_path: Path = None
-) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame | None]:
     """
     Loads cleaned gas, EV, charging desert tracts, and optional highways layer
 
     Output:
-        - [gas_gdf, ev_gdf, deserts_gdf]
+        - (gas_gdf, ev_gdf, deserts_gdf, highways_gdf)
     """
     if gas_path is None:
         gas_path = PROCESSED_DIR / "gas_stations.parquet"
@@ -43,19 +43,19 @@ def load_data(
     deserts_gdf = gpd.read_file(deserts_path)
 
     if highways_path.exists():
-        highways_gdf = gdf.read_pqrauet(highways_path).to_crs(CRS_ANALYSIS)
+        highways_gdf = gpd.read_parquet(highways_path).to_crs(CRS_ANALYSIS)
     else:
         highways_gdf = None
-    
 
     # Project all layers to EPSG:3310
     gas_gdf = gas_gdf.to_crs(CRS_ANALYSIS)
     ev_gdf = ev_gdf.to_crs(CRS_ANALYSIS)
     deserts_gdf = deserts_gdf.to_crs(CRS_ANALYSIS)
 
-    print(f"Loaded {len(gas_gdf)} gas stations, {len(ev_gdf)} EV stations, {len(deserts_gdf)} desert tracts, {len(highways_gdf)} highway segments")
+    h_count = len(highways_gdf) if highways_gdf is not None else 0
+    print(f"Loaded {len(gas_gdf)} gas stations, {len(ev_gdf)} EV stations, {len(deserts_gdf)} desert tracts, {h_count} highway segments")
 
-    return gas_gdf, ev_gdf, deserts_gdf
+    return gas_gdf, ev_gdf, deserts_gdf, highways_gdf
 
 ### Attach gas stations to tracts
 def gas_to_tracts(
@@ -241,7 +241,7 @@ def calculate_gas_conv(
     return gdf
 
 if __name__ == "__main__":
-    gas, ev, deserts = load_data()
+    gas, ev, deserts, highways = load_data()
 
     print("Attaching gas stations to respective tracts...")
     gas = gas_to_tracts(gas, deserts)
