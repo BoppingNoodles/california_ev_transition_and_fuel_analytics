@@ -256,7 +256,10 @@ if __name__ == "__main__":
     gas = nearest_highway(gas, highways)
 
     print("Calculating final conversion scores...")
-    gas = calculate_gas_conv(gas)    
+    gas = calculate_gas_conv(gas)   
+
+    gas.to_parquet(PROCESSED_DIR / "conversion_candidates.paruqet")
+    gas.to_csv(TABLES_DIR / "conversion_candidates", index=False)
 
 
 
