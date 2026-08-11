@@ -9,6 +9,8 @@ Output:
 import sys 
 from pathlib import Path 
 import geopandas as gpd 
+import numpy as np 
+from scipy.spatial import CKDTree
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, GEOJSON_DIR, TABLES_DIR, CRS_ANALYSIS
@@ -49,7 +51,7 @@ def load_data(
 ### Attach gas stations to tracts
 def gas_to_tracts(
     gas: gpd.GeoDataFrame,
-    tract_base: gpd.GeoDataFrame
+    deserts: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """Attaches tract scores to respective gas stations"""
 
@@ -85,7 +87,7 @@ def nearest_dcfc(
     dcfc = dcfc[dcfc['dcfc_ports'] > 0]
 
     # Calculate nearest DCFC distance for each gas station
-    nearest = gpd.sjoin(
+    nearest = gpd.sjoin_nearest(
         gas[['station_id', 'geometry']],
         dcfc[['geometry']],
         how='left',
@@ -105,5 +107,34 @@ def nearest_dcfc(
     )
     
     return gas
+
+### Calculate redundancy
+def calculate_redundant_gas(
+    gas: gpd.GeoDataFrame,
+    radius_meters: float=1000.0,
+    penalty_per_station: float=5.0,
+    max_penalty: float=25.0
+) -> gpd.GeoDataFrame:
+    """
+    Counts other gas stations within 1 km of each station (excluding itself) and 
+    converts the count into a score penalty
+    """
+
+    gdf = gas.copy()
+
+    # Extract projected coords
+    coords = np.column_stack([gdf.geometry.x, gdf.geometry.y])
+
+    # Build spatial KDTree
+    tree = cKDTree(coords)
+
+    # Find all stations within 1 km
+    gdf['nearby_gas_1km'] = [len(neighbors) - 1 for neighbors in tree.query_ball_point(coords,r=radius_meters)]
+
+    # Convert nearby count into a penalty
+    gdf['redundacy_penalty'] = np.minimum(gdf['nearby_gas_1km'] * penalty_per_station,
+                                          max_penalty)
+    
+    return gdf
 
 
