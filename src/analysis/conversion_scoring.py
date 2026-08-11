@@ -19,10 +19,11 @@ from config import PROCESSED_DIR, GEOJSON_DIR, TABLES_DIR, CRS_ANALYSIS
 def load_data(
     gas_path: Path=None,
     ev_path: Path=None,
-    deserts_path: Path=None
+    deserts_path: Path=None,
+    highways_path: Path = None
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
-    Loads cleaned gas, EV, and charging desert tracts
+    Loads cleaned gas, EV, charging desert tracts, and optional highways layer
 
     Output:
         - [gas_gdf, ev_gdf, deserts_gdf]
@@ -33,18 +34,26 @@ def load_data(
         ev_path = PROCESSED_DIR / "ev_stations.parquet"
     if deserts_path is None:
         deserts_path = GEOJSON_DIR / "charging_deserts.geojson"
+    if highways_path is None:
+        highways_path = PROCESSED_DIR / "highways.parquet"
 
     # Load parquet and geojson layers
     gas_gdf = gpd.read_parquet(gas_path)
     ev_gdf = gpd.read_parquet(ev_path)
     deserts_gdf = gpd.read_file(deserts_path)
 
+    if highways_path.exists():
+        highways_gdf = gdf.read_pqrauet(highways_path).to_crs(CRS_ANALYSIS)
+    else:
+        highways_gdf = None
+    
+
     # Project all layers to EPSG:3310
     gas_gdf = gas_gdf.to_crs(CRS_ANALYSIS)
     ev_gdf = ev_gdf.to_crs(CRS_ANALYSIS)
     deserts_gdf = deserts_gdf.to_crs(CRS_ANALYSIS)
 
-    print(f"Loaded {len(gas_gdf)} gas stations, {len(ev_gdf)} EV stations, {len(deserts_gdf)} desert tracts")
+    print(f"Loaded {len(gas_gdf)} gas stations, {len(ev_gdf)} EV stations, {len(deserts_gdf)} desert tracts, {len(highways_gdf)} highway segments")
 
     return gas_gdf, ev_gdf, deserts_gdf
 
@@ -179,6 +188,7 @@ def calculate_gas_conv(
     Applies score components, calculates final score (0-100), and ranks candidate sites
     """
 
+    print("Calculating gas conversion score ...")
     gdf = gas.copy()
 
     # Local charging gap 
@@ -186,7 +196,7 @@ def calculate_gas_conv(
     gdf['pts_local_gap'] = (gdf['desert_score'].fillna(0) / max_desert) * 30.0
 
     # Nearest DCFC distance
-    gdf['pts_dcfc_dist'] = np.mininum(gdf['nearest_dcfc_km'].fillna(15.0), 15.0) / 15.0 * 25.0
+    gdf['pts_dcfc_dist'] = np.minimum(gdf['nearest_dcfc_km'].fillna(15.0), 15.0) / 15.0 * 25.0
 
     # Population and corridor context
     max_pop = gdf['total_population'].max() if gdf['total_population'].max() > 0 else 1.0
@@ -197,7 +207,7 @@ def calculate_gas_conv(
         pts_highway = np.where(gdf['nearest_highway_km'] <= 5.0, 8.0, 0.0)
         gdf['pts_pop_corridor'] = pts_pop + pts_highway 
     else:
-        gdf['pts_per_corridor'] = norm_pop * 20.0
+        gdf['pts_pop_corridor'] = norm_pop * 20.0
     
     # Site Suitability
     gdf['pts_suitability'] = 15.0 
@@ -206,13 +216,13 @@ def calculate_gas_conv(
     gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'].fillna(0) * 3.33, 10.0)
 
     # Planned Infrastructure Penalty
-    gdf['planned_infra_penalty'] - 0.0
+    gdf['planned_infra_penalty'] = 0.0
 
     # Combine score components and clamp
     gdf['raw_score'] = (
         gdf['pts_local_gap'] +
         gdf['pts_dcfc_dist'] + 
-        gdf['pts_pop_corridor'] + 
+        gdf['pts_pop_corridor']
         + gdf['pts_suitability']
         - gdf['redundancy_penalty']
         - gdf['planned_infra_penalty']
@@ -224,9 +234,29 @@ def calculate_gas_conv(
     # Sort descending and assign rank (1 = best candidate)
     gdf = gdf.sort_values(by='final_score', ascending=False).reset_index(drop=True)
     gdf['rank'] = gdf.index + 1
+
+    print(f"Score calculation complete!")
+
     
     return gdf
-    
+
+if __name__ == "__main__":
+    gas, ev, deserts = load_data()
+
+    print("Attaching gas stations to respective tracts...")
+    gas = gas_to_tracts(gas, deserts)
+
+    print("Finding nearest DCFC to gas station...")
+    gas = nearest_dcfc(ev,gas)
+
+    print("Finding nearby gas stations within 1 km...")
+    gas = calculate_redundant_gas(gas)
+
+    print("Finding nearest highway to gas station...")
+    gas = nearest_highway(gas, highways)
+
+    print("Calculating final conversion scores...")
+    gas = calculate_gas_conv(gas)    
 
 
 
