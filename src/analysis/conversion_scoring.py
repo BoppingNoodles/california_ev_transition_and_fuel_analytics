@@ -170,6 +170,62 @@ def nearest_highway(
         gas['nearest_highway_km'] = np.nan
     
     return gas
+
+### Apply score components
+def calculate_gas_conv(
+    gas: gpd.GeoDataFrame
+) -> gpd.GeoDataFrame:
+    """
+    Applies score components, calculates final score (0-100), and ranks candidate sites
+    """
+
+    gdf = gas.copy()
+
+    # Local charging gap 
+    max_desert = gdf['desert_score'].max() if gdf['desert_score'].max() > 0 else 1.0
+    gdf['pts_local_gap'] = (gdf['desert_score'].fillna(0) / max_desert) * 30.0
+
+    # Nearest DCFC distance
+    gdf['pts_dcfc_dist'] = np.mininum(gdf['nearest_dcfc_km'].fillna(15.0), 15.0) / 15.0 * 25.0
+
+    # Population and corridor context
+    max_pop = gdf['total_population'].max() if gdf['total_population'].max() > 0 else 1.0
+    norm_pop = gdf['total_population'].fillna(0) / max_pop 
+
+    if 'nearest_highway_km' in gdf.columns and gdf['nearest_highway_km'].notna().any():
+        pts_pop = norm_pop * 12.0
+        pts_highway = np.where(gdf['nearest_highway_km'] <= 5.0, 8.0, 0.0)
+        gdf['pts_pop_corridor'] = pts_pop + pts_highway 
+    else:
+        gdf['pts_per_corridor'] = norm_pop * 20.0
+    
+    # Site Suitability
+    gdf['pts_suitability'] = 15.0 
+
+    # Reundancy Penalty
+    gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'].fillna(0) * 3.33, 10.0)
+
+    # Planned Infrastructure Penalty
+    gdf['planned_infra_penalty'] - 0.0
+
+    # Combine score components and clamp
+    gdf['raw_score'] = (
+        gdf['pts_local_gap'] +
+        gdf['pts_dcfc_dist'] + 
+        gdf['pts_pop_corridor'] + 
+        + gdf['pts_suitability']
+        - gdf['redundancy_penalty']
+        - gdf['planned_infra_penalty']
+    )
+    
+    # Clamp Score between 0-100
+    gdf['final_score'] = np.clip(gdf['raw_score'], 0.0, 100.0)
+
+    # Sort descending and assign rank (1 = best candidate)
+    gdf = gdf.sort_values(by='final_score', ascending=False).reset_index(drop=True)
+    gdf['rank'] = gdf.index + 1
+    
+    return gdf
     
 
 
