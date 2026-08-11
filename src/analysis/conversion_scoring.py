@@ -10,7 +10,7 @@ import sys
 from pathlib import Path 
 import geopandas as gpd 
 import numpy as np 
-from scipy.spatial import CKDTree
+from scipy.spatial import cKDTree
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, GEOJSON_DIR, TABLES_DIR, CRS_ANALYSIS
@@ -132,9 +132,45 @@ def calculate_redundant_gas(
     gdf['nearby_gas_1km'] = [len(neighbors) - 1 for neighbors in tree.query_ball_point(coords,r=radius_meters)]
 
     # Convert nearby count into a penalty
-    gdf['redundacy_penalty'] = np.minimum(gdf['nearby_gas_1km'] * penalty_per_station,
+    gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'] * penalty_per_station,
                                           max_penalty)
     
     return gdf
+
+### Find nearest highway
+def nearest_highway(
+    gas: gpd.GeoDataFrame,
+    highways: gpd.GeoDataFrame=None
+) -> gpd.GeoDataFrame:
+    """
+    Calculates distance in km to nearest major highway segment for each gas station
+    and awards corridor context points
+    """
+
+    gas = gas.copy()
+    
+    # Spatially join to find nearest highway for each gas station
+    if highways is not None and not highways.empty:
+        nearest = gpd.sjoin_nearest(
+            gas[['station_id', 'geometry']],
+            highways[['geometry']],
+            how='left',
+            distance_col='distance_meters'
+        )
+
+        nearest = nearest.drop_duplicates(subset=['station_id'])
+        nearest['nearest_highway_km'] = nearest['distance_meters'] / 1000.0
+        # Merge back to gas stations
+        gas = gas.merge(
+            nearest[['station_id','nearest_highway_km']],
+            on='station_id',
+            how='left'
+        )
+    else: 
+        gas['nearest_highway_km'] = np.nan
+    
+    return gas
+    
+
 
 
