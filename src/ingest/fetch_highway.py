@@ -1,5 +1,5 @@
 """
-This file fetches California highway data from Open Streetmap using Python
+This file fetches California highway data from US Census TIGER Primary Roads using Python
 
 Output:
      - GeoPandasDataFrame: `data/processed/highways.parquet`
