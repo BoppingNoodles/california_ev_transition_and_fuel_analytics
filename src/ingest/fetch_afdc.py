@@ -70,7 +70,7 @@ def quality_control(stations: list[dict]) -> None:
         print(f"Access Code Breakdown: \n", df['access_code'].value_counts(dropna=False).to_string())
     if 'ev_dc_fast_num' in df.columns:
         dfdc_total = pd.to_numeric(df['ev_dc_fast_num'], errors='coerce').fillna(0).sum()
-        print(f"DFDC ports: {int(dfdc_total)}")
+        print(f"DCFC ports: {int(dfdc_total)}")
 
 if __name__ == '__main__':
     t0 = time.time()
