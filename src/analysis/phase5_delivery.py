@@ -4,16 +4,25 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+import sys
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-from .desert_detection import (
-    add_severity_labels,
-    compute_desert_components,
-    compute_desert_score,
-)
+try:
+    from .desert_detection import (
+        add_severity_labels,
+        compute_desert_components,
+        compute_desert_score,
+    )
+except ImportError:  # Supports direct execution by file path.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from desert_detection import (  # type: ignore[no-redef]
+        add_severity_labels,
+        compute_desert_components,
+        compute_desert_score,
+    )
 
 
 @dataclass(frozen=True)
