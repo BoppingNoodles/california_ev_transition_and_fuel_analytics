@@ -9,6 +9,7 @@ Output:
 import sys 
 from pathlib import Path 
 import geopandas as gpd 
+import pandas as pd
 import numpy as np 
 from scipy.spatial import cKDTree
 
@@ -121,12 +122,12 @@ def nearest_dcfc(
 def calculate_redundant_gas(
     gas: gpd.GeoDataFrame,
     radius_meters: float=1000.0,
-    penalty_per_station: float=5.0,
-    max_penalty: float=25.0
+    penalty_per_station: float=3.33,
+    max_penalty: float=10.0
 ) -> gpd.GeoDataFrame:
     """
     Counts other gas stations within 1 km of each station (excluding itself) and 
-    converts the count into a score penalty
+    converts the count into a score penalty (subtracting up to 10 points).
     """
 
     gdf = gas.copy()
@@ -138,11 +139,10 @@ def calculate_redundant_gas(
     tree = cKDTree(coords)
 
     # Find all stations within 1 km
-    gdf['nearby_gas_1km'] = [len(neighbors) - 1 for neighbors in tree.query_ball_point(coords,r=radius_meters)]
+    gdf['nearby_gas_1km'] = [len(neighbors) - 1 for neighbors in tree.query_ball_point(coords, r=radius_meters)]
 
     # Convert nearby count into a penalty
-    gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'] * penalty_per_station,
-                                          max_penalty)
+    gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'] * penalty_per_station, max_penalty)
     
     return gdf
 
@@ -180,12 +180,47 @@ def nearest_highway(
     
     return gas
 
+def generate_rationale(row: pd.Series) -> str:
+    """Builds a readable rationale string summarizing top score drivers for candidate site."""
+    reasons = []
+    
+    # 1. DCFC distance
+    dcfc_km = row.get('nearest_dcfc_km', np.nan)
+    if pd.notna(dcfc_km):
+        if dcfc_km >= 15.0:
+            reasons.append("15+ km from nearest DCFC")
+        elif dcfc_km >= 3.0:
+            reasons.append(f"{dcfc_km:.1f} km from nearest DCFC")
+
+    # 2. Charging desert context
+    severity = row.get('severity_score', '')
+    d_score = row.get('desert_score', np.nan)
+    if severity == 'severe_desert':
+        reasons.append(f"severe charging desert (score: {d_score:.1f})")
+    elif severity == 'moderate_desert':
+        reasons.append(f"moderate charging desert (score: {d_score:.1f})")
+
+    # 3. Highway corridor context
+    h_km = row.get('nearest_highway_km', np.nan)
+    if pd.notna(h_km) and h_km <= 5.0:
+        reasons.append(f"major corridor site ({h_km:.1f} km to highway)")
+
+    # 4. Low competition / isolation
+    nearby = row.get('nearby_gas_1km', 0)
+    if nearby == 0:
+        reasons.append("isolated site (0 gas stations within 1 km)")
+
+    if not reasons:
+        return f"Conversion suitability score: {row.get('final_score', 0):.1f}"
+        
+    return "; ".join(reasons[:3])
+
 ### Apply score components
 def calculate_gas_conv(
     gas: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     """
-    Applies score components, calculates final score (0-100), and ranks candidate sites
+    Applies score components, calculates final score (0-100), builds rationale, and ranks candidate sites
     """
 
     print("Calculating gas conversion score ...")
@@ -212,8 +247,9 @@ def calculate_gas_conv(
     # Site Suitability
     gdf['pts_suitability'] = 15.0 
 
-    # Reundancy Penalty
-    gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'].fillna(0) * 3.33, 10.0)
+    # Redundancy Penalty
+    if 'redundancy_penalty' not in gdf.columns:
+        gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'].fillna(0) * 3.33, 10.0)
 
     # Planned Infrastructure Penalty
     gdf['planned_infra_penalty'] = 0.0
@@ -235,9 +271,11 @@ def calculate_gas_conv(
     gdf = gdf.sort_values(by='final_score', ascending=False).reset_index(drop=True)
     gdf['rank'] = gdf.index + 1
 
+    # Generate rationale column
+    gdf['rationale'] = gdf.apply(generate_rationale, axis=1)
+
     print(f"Score calculation complete!")
 
-    
     return gdf
 
 if __name__ == "__main__":
