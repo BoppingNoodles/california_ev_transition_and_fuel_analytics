@@ -18,7 +18,8 @@ def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     
     shp_files = list(tracts_dir.glob('*.shp'))
     if not shp_files:
-        print(f"No shp files found at {tracts_dir}")
+        print(f"[ERROR] No shp files found at {tracts_dir}")
+        sys.exit(1)
     
     tracts = gpd.read_file(shp_files[0])
     print(f"Found {len(tracts)} tracts at {tracts_dir}")
@@ -30,7 +31,8 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
     census_files = sorted(dir.glob('census_data_*.csv'))
 
     if not census_files:
-        print(f"No census files found at {dir}")
+        print(f"[ERROR] No census files found at {dir}")
+        sys.exit(1)
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
@@ -137,9 +139,9 @@ def agg_ev(
     # Spatially join EV stations to tracts
     joined = gpd.sjoin(ev,tract_base, how='left',predicate='within')
 
-    # Group by tract GEOID
+    id_col = "station_id" if "station_id" in joined.columns else "id"
     ev_agg = joined.groupby('GEOID').agg(
-        ev_station_count=("id", "count"),
+        ev_station_count=(id_col, "count"),
         level2_ports=("level2_ports", "sum"),
         dcfc_ports=("dcfc_ports", "sum"),
         total_ev_ports=("total_ev_ports", "sum")
@@ -171,7 +173,7 @@ def agg_gas(
     # Group by GEOID
     gas_agg = joined.groupby("GEOID").agg(
         gas_station_count=("station_id", "count")
-    ).reset_index(0)
+    ).reset_index()
 
     # Join counts back to all tracts
     tract_base = tract_base.merge(gas_agg,on='GEOID', how='left')
