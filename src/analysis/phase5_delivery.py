@@ -65,6 +65,18 @@ def _metric_column(gdf: pd.DataFrame, metric: str) -> str:
 def score_desert_scenario(metrics: gpd.GeoDataFrame, scenario: Scenario) -> gpd.GeoDataFrame:
     """Score tracts under one scenario while retaining transparent components."""
     df = metrics.copy()
+    # Derive optional sensitivity metrics from the Phase 3 columns when they
+    # were not persisted as dedicated fields.
+    if scenario.ev_supply_metric == "dcfc_ports_per_sq_km" and "dcfc_ports_per_sq_km" not in df:
+        if {"dcfc_ports", "tract_area_sq_km"}.issubset(df.columns):
+            area = pd.to_numeric(df["tract_area_sq_km"], errors="coerce").replace(0, np.nan)
+            df["dcfc_ports_per_sq_km"] = pd.to_numeric(df["dcfc_ports"], errors="coerce").fillna(0) / area
+    if scenario.ev_supply_metric == "ev_ports_per_1000_people" and "ev_ports_per_1000_people" not in df:
+        ports_col = "total_ev_ports" if "total_ev_ports" in df else "total_ports"
+        pop_col = "total_population" if "total_population" in df else "population"
+        if {ports_col, pop_col}.issubset(df.columns):
+            population = pd.to_numeric(df[pop_col], errors="coerce").replace(0, np.nan)
+            df["ev_ports_per_1000_people"] = pd.to_numeric(df[ports_col], errors="coerce").fillna(0) / population * 1000
     metric = _metric_column(df, scenario.ev_supply_metric)
     if metric != "ports_per_sq_km":
         df["ports_per_sq_km"] = pd.to_numeric(df[metric], errors="coerce").fillna(0)
