@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import folium
 import geopandas as gpd
 import pandas as pd
 from folium.plugins import MarkerCluster
 
-from ..config import CRS_WEB, GEOJSON_DIR, MAPS_DIR, PROCESSED_DIR, TABLES_DIR
+try:
+    from ..config import CRS_WEB, GEOJSON_DIR, MAPS_DIR, PROCESSED_DIR, TABLES_DIR
+except ImportError:  # Supports direct execution by file path.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from config import CRS_WEB, GEOJSON_DIR, MAPS_DIR, PROCESSED_DIR, TABLES_DIR  # type: ignore[no-redef]
 
 
 def _first_column(frame: pd.DataFrame, names: list[str], required: bool = True) -> str | None:
