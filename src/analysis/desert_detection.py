@@ -22,7 +22,7 @@ def load_coverage_metrics(
         path = PROCESSED_DIR / "tract_coverage_metrics.parquet"
     
     gdf = gpd.read_parquet(path)
-    print(f"Loaded coverage metrics for {len(gdf)} tracts form {path.name}")
+    print(f"Loaded coverage metrics for {len(gdf)} tracts from {path.name}")
 
     return gdf
 
