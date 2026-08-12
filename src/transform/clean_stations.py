@@ -72,6 +72,10 @@ def clean_ev_station(raw_path: Path) -> GeoDataFrame:
         else:
             df[clean_col] = 0
 
+    # Rename id to station_id for consistent schema
+    if 'id' in df.columns:
+        df = df.rename(columns={'id': 'station_id'})
+
     # Derived fields
     df['total_ev_ports'] = df['dcfc_ports'] + df['level1_ports'] + df['level2_ports']
     df['has_dcfc'] = df['dcfc_ports'] > 0
@@ -98,6 +102,10 @@ def clean_gas_station(raw_path: Path) -> GeoDataFrame:
     # Filter out non-California rows
     gas_df = gas_df[(gas_df.geometry.y > 32.5) & (gas_df.geometry.y < 43.0)]
     gas_df = gas_df[(gas_df.geometry.x > -125.0) & (gas_df.geometry.x < -113.0)]
+
+    # Preserve native lat/lon before projecting to analysis CRS
+    gas_df['latitude'] = gas_df.geometry.y
+    gas_df['longitude'] = gas_df.geometry.x
 
     # Project to California Albers
     gas_df = gas_df.to_crs(CRS_ANALYSIS)
@@ -126,7 +134,7 @@ def clean_gas_station(raw_path: Path) -> GeoDataFrame:
         raise ValueError(f"No YYYY-MM-DD date found in filename: {raw_path.name}")
     gas_df['source_snapshot_date'] = match.group(0)
 
-    keep_cols = ['station_id', 'name', 'address', 'city', 'zip', 'source', 'source_snapshot_date', 'geometry']
+    keep_cols = ['station_id', 'name', 'address', 'city', 'zip', 'latitude', 'longitude', 'source', 'source_snapshot_date', 'geometry']
     gas_df = gas_df[[col for col in keep_cols if col in gas_df.columns]]
 
     return gas_df
