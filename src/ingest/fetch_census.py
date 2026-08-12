@@ -25,7 +25,7 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     api_url = "https://api.census.gov/data/2024/acs/acs5"
 
     params = {
-        "get": "NAME,B01003_001E,B19013_001E", # Name, Total Population, Median Household Income
+        "get": "NAME,B01003_001E,B19013_001E,B08201_001E,B08201_002E", # Name, Population, Income, Total HH, Zero-vehicle HH
         "for": "tract:*",
         "in": "state:06", # Filter to California
         "key": CENSUS_API_KEY
@@ -41,7 +41,9 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     # Rename column names
     df = df.rename(columns={
         'B01003_001E': 'total_population',
-        'B19013_001E': 'median_income'
+        'B19013_001E': 'median_income',
+        'B08201_001E': 'total_households',
+        'B08201_002E': 'no_vehicle_households'
     })
 
     # Construct GEOID
@@ -50,6 +52,8 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     # Clean data types
     df["total_population"] = pd.to_numeric(df["total_population"], errors='coerce').fillna(0).astype(int)
     df["median_income"] = pd.to_numeric(df["median_income"], errors="coerce")
+    df["total_households"] = pd.to_numeric(df["total_households"], errors="coerce").fillna(0).astype(int)
+    df["no_vehicle_households"] = pd.to_numeric(df["no_vehicle_households"], errors="coerce").fillna(0).astype(int)
 
     df.to_csv(output_path, index=False)
     print(f"Success! Saved California 2024 ACS 5-year demographics to {output_path}")
