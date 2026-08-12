@@ -58,7 +58,14 @@ Edit `.env` and add your [NREL API key](https://developer.nrel.gov/signup/) (fre
 
 ## Findings
 
-_Findings will be documented here after Phase 5._
+Phase 5 produces sensitivity tables, an interactive map, and a candidate-review dashboard. Run the sensitivity notebook after Phases 1–4, then generate the map with:
+
+```bash
+python -m src.viz.maps
+streamlit run app/streamlit_app.py
+```
+
+The dashboard requires the Phase 3 desert GeoJSON and Phase 4 candidate CSV. Rankings are model-based prioritization signals, not site-feasibility determinations.
 
 ## Limitations
 
