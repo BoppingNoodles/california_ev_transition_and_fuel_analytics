@@ -53,7 +53,7 @@ def build_map(
         candidate_points = None
 
     center = [36.7783, -119.4179]
-    m = folium.Map(location=center, zoom_start=6, tiles="CartoDB positron", control_scale=True)
+    m = folium.Map(location=center, zoom_start=6, tiles="OpenStreetMap", control_scale=True)
     score_col = _first_column(deserts, ["desert_score"], required=True)
     severity_col = _first_column(deserts, ["severity_score", "severity"], required=False)
     folium.Choropleth(
