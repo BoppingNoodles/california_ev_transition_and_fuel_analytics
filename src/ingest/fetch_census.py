@@ -14,10 +14,11 @@ from config import RAW_DIR, TODAY_STR, CENSUS_API_KEY
 def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     """Fetches California ACS (American Community Survey) 2024 data from API and saves it as CSV"""
     if not CENSUS_API_KEY:
-        print("[ERROR]: CENSUS_API_KEY is not set in your .env file or environment.")
-        print("Please sign up for a free Census API key at: https://api.census.gov/data/key_signup.html")
-        print("Then add 'CENSUS_API_KEY=your_key_here' to your .env file and restart your kernel.")
-        sys.exit(1)
+        raise RuntimeError(
+            "CENSUS_API_KEY is not set in your .env file or environment. "
+            "Sign up for a free key at https://api.census.gov/data/key_signup.html, "
+            "add 'CENSUS_API_KEY=your_key_here' to .env, and restart your kernel."
+        )
 
     if output_path is None:
         output_path = RAW_DIR / f"census_data_{TODAY_STR}.csv"

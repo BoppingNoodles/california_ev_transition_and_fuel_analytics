@@ -19,8 +19,7 @@ def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     
     shp_files = list(tracts_dir.glob('*.shp'))
     if not shp_files:
-        print(f"[ERROR] No shp files found at {tracts_dir}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No tract shapefile found in {tracts_dir}. Run src/ingest/fetch_census.py first.")
     
     tracts = gpd.read_file(shp_files[0])
     print(f"Found {len(tracts)} tracts at {tracts_dir}")
@@ -32,8 +31,7 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
     census_files = sorted(dir.glob('census_data_*.csv'))
 
     if not census_files:
-        print(f"[ERROR] No census files found at {dir}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No census_data_*.csv found in {dir}. Run src/ingest/fetch_census.py first.")
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 

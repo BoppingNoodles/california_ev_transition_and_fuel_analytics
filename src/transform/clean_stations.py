@@ -21,11 +21,9 @@ def find_latest_files(directory: Path = RAW_DIR) -> tuple[Path, Path]:
 
     # Guard: check before attempting to index the list
     if not ev_files:
-        print(f"[ERROR] No EV CSV found in {directory}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No afdc_ev_stations_*.csv found in {directory}. Run src/ingest/fetch_afdc.py first.")
     if not gas_files:
-        print(f"[ERROR] No Gas GeoJSON found in {directory}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No cec_gas_stations_*.geojson found in {directory}. Run src/ingest/fetch_gas_stations.py first.")
 
     latest_ev_csv = ev_files[-1]
     latest_gas_geojson = gas_files[-1]
