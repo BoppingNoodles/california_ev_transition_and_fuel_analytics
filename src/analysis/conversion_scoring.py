@@ -66,14 +66,16 @@ def gas_to_tracts(
     """Attaches tract scores to respective gas stations"""
 
     # Subset desert tracts to keep only geometry and certain metadata columns
-    tract_subset = deserts[[
+    tract_cols = [
         'GEOID',
+        'county',
         'desert_score',
         'severity_score',
         'total_population',
         'population_density',
         'geometry'
-    ]]
+    ]
+    tract_subset = deserts[[c for c in tract_cols if c in deserts.columns]]
     # Spatially join gas gdf with tract gdf
     gas_with_tract = gpd.sjoin(gas, tract_subset, how='left', predicate='within')
 

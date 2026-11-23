@@ -2,6 +2,7 @@
 This file associates infrastructure points with Census tracts and calculates
 accessibility metrics
 """
+import re
 import sys
 from pathlib import Path
 import pandas as pd
@@ -77,6 +78,17 @@ def align_crs(tracts: gpd.GeoDataFrame,
 
     return tracts_proj, ev_proj, gas_proj
 
+def parse_county_name(acs_name) -> str | None:
+    """Extracts the county name from an ACS tract NAME (';' or ',' separated)."""
+    if not isinstance(acs_name, str):
+        return None
+    for part in re.split(r"[;,]", acs_name):
+        part = part.strip()
+        if part.endswith(" County"):
+            return part[: -len(" County")]
+    return None
+
+
 ### Prepare tract base
 def prepare_tract_base(
     tracts: gpd.GeoDataFrame,
@@ -97,8 +109,13 @@ def prepare_tract_base(
 
     n_before = len(tract_base)
 
+    # County name from the ACS NAME field, e.g.
+    # "Census Tract 4001; Alameda County; California" -> "Alameda"
+    if "NAME" in demographics.columns:
+        demographics["county"] = demographics["NAME"].map(parse_county_name)
+
     # Left-join so every tract geometry is preserved even if ACS data is missing
-    acs_cols = ["GEOID", "total_population", "median_income"]
+    acs_cols = [c for c in ["GEOID", "county", "total_population", "median_income"] if c in demographics.columns]
     tract_base = tract_base.merge(
         demographics[acs_cols], on="GEOID", how="left"
     )
