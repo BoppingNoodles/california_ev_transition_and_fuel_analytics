@@ -71,7 +71,8 @@ def scorable_tracts(gdf: pd.DataFrame) -> pd.Series:
 
 ### Build the desert score components
 def compute_desert_components(
-    gdf: gpd.GeoDataFrame
+    gdf: gpd.GeoDataFrame,
+    method: str = "percentile",
 ) -> gpd.GeoDataFrame:
     """
     Calculates the 4 normalized component columns on a 0-1 scale.
@@ -87,17 +88,17 @@ def compute_desert_components(
         df[col] = np.nan
 
     # Gas access component
-    df.loc[mask, 'comp_gas_access'] = normalize_coverage_metrics(scored['gas_access_count_2km'])
+    df.loc[mask, 'comp_gas_access'] = normalize_coverage_metrics(scored['gas_access_count_2km'], method)
 
     # Population density
-    df.loc[mask, 'comp_pop_density'] = normalize_coverage_metrics(scored['population_density'])
+    df.loc[mask, 'comp_pop_density'] = normalize_coverage_metrics(scored['population_density'], method)
 
     # EV gap component
-    norm_ev_supply = normalize_coverage_metrics(scored['ports_per_sq_km'])
+    norm_ev_supply = normalize_coverage_metrics(scored['ports_per_sq_km'], method)
     df.loc[mask, 'comp_ev_gap'] = 1.0 - norm_ev_supply
 
     # DCFC distance component
-    df.loc[mask, 'comp_dcfc_distance'] = normalize_coverage_metrics(scored['nearest_dcfc_km'])
+    df.loc[mask, 'comp_dcfc_distance'] = normalize_coverage_metrics(scored['nearest_dcfc_km'], method)
 
     return df
 

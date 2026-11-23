@@ -238,6 +238,36 @@ def planned_dcfc_penalty(
     return gas
 
 
+def prepare_candidate_base(
+    gas: gpd.GeoDataFrame,
+    ev: gpd.GeoDataFrame,
+    highways: gpd.GeoDataFrame = None,
+    planned: gpd.GeoDataFrame = None,
+) -> gpd.GeoDataFrame:
+    """
+    Computes the per-station inputs that do not depend on tract scoring or
+    scenario settings: nearest open DCFC, nearest highway, and the planned
+    DCFC penalty. Tract attributes and redundancy are added per scenario.
+    """
+    base = nearest_dcfc(ev, gas)
+    base = nearest_highway(base, highways)
+    base = planned_dcfc_penalty(base, planned)
+    return base
+
+
+def score_candidates(
+    candidate_base: gpd.GeoDataFrame,
+    deserts: gpd.GeoDataFrame,
+    redundancy_radius_m: float = 1000.0,
+) -> gpd.GeoDataFrame:
+    """Attaches tract scores, computes redundancy, and returns ranked candidates."""
+    tract_cols = ['GEOID', 'county', 'desert_score', 'severity_score', 'total_population', 'population_density']
+    base = candidate_base.drop(columns=[c for c in tract_cols if c in candidate_base.columns])
+    gas = gas_to_tracts(base, deserts.to_crs(base.crs))
+    gas = calculate_redundant_gas(gas, radius_meters=redundancy_radius_m)
+    return calculate_gas_conv(gas)
+
+
 def generate_rationale(row: pd.Series) -> str:
     """Builds a readable rationale string summarizing top score drivers for candidate site."""
     reasons = []
@@ -348,23 +378,11 @@ def calculate_gas_conv(
 if __name__ == "__main__":
     gas, ev, deserts, highways = load_data()
 
-    print("Attaching gas stations to respective tracts...")
-    gas = gas_to_tracts(gas, deserts)
+    print("Computing nearest DCFC, nearest highway and planned DCFC for each gas station...")
+    base = prepare_candidate_base(gas, ev, highways, load_planned())
 
-    print("Finding nearest DCFC to gas station...")
-    gas = nearest_dcfc(ev,gas)
-
-    print("Finding nearby gas stations within 1 km...")
-    gas = calculate_redundant_gas(gas)
-
-    print("Finding nearest highway to gas station...")
-    gas = nearest_highway(gas, highways)
-
-    print("Checking for planned DCFC near each gas station...")
-    gas = planned_dcfc_penalty(gas, load_planned())
-
-    print("Calculating final conversion scores...")
-    gas = calculate_gas_conv(gas)   
+    print("Attaching tract scores, redundancy (1 km) and final conversion scores...")
+    gas = score_candidates(base, deserts, redundancy_radius_m=1000.0)
 
     save_path = PROCESSED_DIR / "conversion_candidates.parquet"
     gas.to_parquet(save_path)
