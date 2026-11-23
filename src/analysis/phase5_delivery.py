@@ -229,3 +229,40 @@ def severity_sensitivity(results: dict[str, gpd.GeoDataFrame]) -> pd.DataFrame:
         rows.append({"scenario": name, "tract_count": len(frame), **severity.value_counts().to_dict(),
                      "median_score": frame["desert_score"].median(), "max_score": frame["desert_score"].max()})
     return pd.DataFrame(rows).fillna(0)
+
+
+def run_and_export(scenarios: list[Scenario] | None = None) -> dict[str, Path]:
+    """Loads Phase 3/4 inputs, runs every scenario, and writes the sensitivity tables."""
+    try:
+        from .conversion_scoring import load_data, load_planned, prepare_candidate_base
+    except ImportError:
+        from conversion_scoring import load_data, load_planned, prepare_candidate_base  # type: ignore[no-redef]
+    from config import PROCESSED_DIR, TABLES_DIR  # on sys.path via the analysis modules
+
+    scenarios = scenarios or default_scenarios()
+    metrics = gpd.read_parquet(PROCESSED_DIR / "tract_coverage_metrics.parquet")
+    gas, ev, _, highways = load_data()
+    candidate_base = prepare_candidate_base(gas, ev, highways, load_planned())
+
+    tract_results, ranked, skipped = run_sensitivity(metrics, candidate_base, gas, scenarios)
+    if skipped:
+        print(f"Skipped scenarios: {skipped}")
+
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "scenarios": TABLES_DIR / "sensitivity_scenarios.csv",
+        "severity": TABLES_DIR / "severity_sensitivity.csv",
+        "stability": TABLES_DIR / "candidate_stability.csv",
+    }
+    scenario_metadata(scenarios).to_csv(paths["scenarios"], index=False)
+    severity_sensitivity(tract_results).to_csv(paths["severity"], index=False)
+    stability = summarize_candidate_stability(ranked)
+    stability.to_csv(paths["stability"], index=False)
+    print(f"Stable candidates: {int(stability['stable_candidate'].sum())} of {len(stability)}")
+    for path in paths.values():
+        print(f"Saved {path}")
+    return paths
+
+
+if __name__ == "__main__":
+    run_and_export()
