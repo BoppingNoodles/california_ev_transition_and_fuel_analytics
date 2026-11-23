@@ -60,3 +60,12 @@ def test_metrics_pipeline_produces_expected_columns(tract_metrics):
                 "ports_per_sq_km", "ports_per_1000", "dcfc_per_1000", "zero_population_flag"]:
         assert col in tract_metrics.columns
     assert tract_metrics["zero_population_flag"].sum() == 1
+
+
+def test_county_is_never_a_fips_code():
+    tracts = gpd.GeoDataFrame({"GEOID": ["06001000100"], "ALAND": [1_000_000]},
+                              geometry=[box(0, 0, 1_000, 1_000)], crs=CRS)
+    demo = pd.DataFrame({"GEOID": ["06001000100"], "county": ["001"],
+                         "total_population": [100], "median_income": [50000]})  # no NAME column
+    base = cm.prepare_tract_base(tracts, demo)
+    assert "county" not in base.columns or base["county"].isna().all()

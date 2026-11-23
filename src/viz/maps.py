@@ -39,9 +39,10 @@ def _simplify_for_map(tracts: gpd.GeoDataFrame, tolerance_m: float, decimals: in
     """Coverage-simplifies tract outlines in metres and rounds coordinates (5 decimals ~ 1 m)."""
     out = tracts.to_crs("EPSG:3310")
     if tolerance_m:
-        if hasattr(out.geometry, "simplify_coverage"):
+        try:  # needs shapely >= 2.1 / GEOS >= 3.12
             out["geometry"] = out.geometry.simplify_coverage(tolerance_m)
-        else:
+        except (AttributeError, ImportError, NotImplementedError):
+            print("[WARN] Coverage simplification unavailable; using per-polygon simplify")
             out["geometry"] = out.geometry.simplify(tolerance_m, preserve_topology=True)
     out = out.to_crs(CRS_WEB)
     out["geometry"] = shapely.transform(out.geometry.values, lambda xy: np.round(xy, decimals))

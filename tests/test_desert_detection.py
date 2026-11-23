@@ -102,3 +102,33 @@ def test_geojson_export_is_simplified_compact_and_gap_free(tmp_path):
     union_area = web.geometry.union_all().area
     assert union_area == pytest.approx(web.area.sum(), rel=1e-6)
     assert union_area == pytest.approx(gdf.area.sum(), rel=0.01)
+
+
+def test_geojson_export_drops_projected_reference_columns(tmp_path):
+    import json
+
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from analysis.desert_detection import export_desert_geojson
+
+    gdf = gpd.GeoDataFrame({"GEOID": ["a"], "desert_score": [50.0], "ref_x": [-177144.3], "ref_y": [-51389.2],
+                            "ref_point_source": ["population_weighted"]},
+                           geometry=[box(0, 0, 1_000, 1_000)], crs="EPSG:3310")
+    out = export_desert_geojson(gdf, tmp_path / "web.geojson")
+    props = json.loads(out.read_text(encoding="utf-8"))["features"][0]["properties"]
+    assert not {"ref_x", "ref_y", "ref_point_source"} & set(props)
+
+
+def test_simplify_tracts_falls_back_without_coverage_support(monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    from analysis.desert_detection import simplify_tracts
+
+    def unavailable(self, tolerance):
+        raise ImportError("'simplify_coverage' requires shapely>=2.1 and GEOS>=3.12")
+
+    monkeypatch.setattr(gpd.GeoSeries, "simplify_coverage", unavailable)
+    out = simplify_tracts(gpd.GeoSeries([box(0, 0, 10, 10)], crs="EPSG:3310"), 1.0)
+    assert out.is_valid.all() and len(out) == 1

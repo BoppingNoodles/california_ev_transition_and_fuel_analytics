@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+import math
 import sys
 
 import geopandas as gpd
@@ -65,19 +66,20 @@ class Scenario:
 
 def default_scenarios() -> list[Scenario]:
     """
-    Baseline plus one-at-a-time perturbations. Weight scenarios scale a
-    single weight by 0.5x or 1.5x-2x (weights are renormalized to sum to 1),
-    which is large enough to reveal which candidates depend on a particular
-    modelling choice.
+    Baseline plus one-at-a-time perturbations. Weight scenarios multiply a
+    single raw weight by 0.5x, 1.5x or 2x and then renormalize all weights
+    to sum to 1, so the effective change in that weight's share is smaller
+    than the raw factor (e.g. ev_gap_high: 0.35 -> ~0.45). The effective
+    weights are written to sensitivity_scenarios.csv by scenario_metadata().
     """
     return [
         Scenario("baseline"),
-        Scenario("ev_gap_x1.5", w_ev=0.35 * 1.5),
-        Scenario("ev_gap_x0.5", w_ev=0.35 * 0.5),
-        Scenario("dcfc_distance_x2", w_dcfc=0.15 * 2),
-        Scenario("dcfc_distance_x0.5", w_dcfc=0.15 * 0.5),
-        Scenario("gas_access_x0.5", w_gas=0.25 * 0.5),
-        Scenario("pop_density_x0.5", w_pop=0.25 * 0.5),
+        Scenario("ev_gap_high", w_ev=0.35 * 1.5),
+        Scenario("ev_gap_low", w_ev=0.35 * 0.5),
+        Scenario("dcfc_distance_high", w_dcfc=0.15 * 2),
+        Scenario("dcfc_distance_low", w_dcfc=0.15 * 0.5),
+        Scenario("gas_access_low", w_gas=0.25 * 0.5),
+        Scenario("pop_density_low", w_pop=0.25 * 0.5),
         Scenario("equal_weights", w_gas=0.25, w_pop=0.25, w_ev=0.25, w_dcfc=0.25),
         Scenario("gas_buffer_5km", gas_access_buffer_km=5),
         Scenario("redundancy_2km", redundancy_buffer_km=2),
@@ -201,8 +203,15 @@ def rank_candidates(candidates: pd.DataFrame, scenario_name: str) -> pd.DataFram
     return result[["station_id", f"score_{scenario_name}", f"rank_{scenario_name}"]]
 
 
-def summarize_candidate_stability(ranked: list[pd.DataFrame]) -> pd.DataFrame:
-    """Merge scenario ranks and calculate top-N stability statistics."""
+def summarize_candidate_stability(ranked: list[pd.DataFrame], top20_share: float = 0.5) -> pd.DataFrame:
+    """
+    Merge scenario ranks and calculate top-N stability statistics.
+
+    A candidate is `stable_candidate` when it ranks in the top 20 in at least
+    `top20_share` of scenarios (rounded up), or in the top 50 in every
+    scenario. The threshold scales with the number of scenarios so adding
+    scenarios does not loosen the bar.
+    """
     merged = ranked[0].copy()
     for frame in ranked[1:]:
         merged = merged.merge(frame, on="station_id", how="outer")
@@ -214,7 +223,8 @@ def summarize_candidate_stability(ranked: list[pd.DataFrame]) -> pd.DataFrame:
     merged["worst_rank"] = ranks.max(axis=1)
     merged["rank_std"] = ranks.std(axis=1).fillna(0)
     scenario_count = len(rank_cols)
-    merged["stable_candidate"] = (merged["top20_count"] >= max(1, min(4, scenario_count))) | (merged["top50_count"] == scenario_count)
+    top20_needed = max(1, math.ceil(top20_share * scenario_count))
+    merged["stable_candidate"] = (merged["top20_count"] >= top20_needed) | (merged["top50_count"] == scenario_count)
     return merged.sort_values(["stable_candidate", "top20_count", "average_rank"], ascending=[False, False, True])
 
 

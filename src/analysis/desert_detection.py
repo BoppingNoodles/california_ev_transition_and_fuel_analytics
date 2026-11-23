@@ -148,6 +148,21 @@ def add_severity_labels(
     return df
 
 ### Saved scored tracts to GeoJSON
+def simplify_tracts(geometry: gpd.GeoSeries, tolerance: float) -> gpd.GeoSeries:
+    """
+    Simplifies a tract coverage, keeping shared edges identical between
+    neighbours when the installed shapely/GEOS supports coverage
+    simplification (shapely >= 2.1, GEOS >= 3.12). Otherwise falls back to
+    per-polygon topology-preserving simplification, which may leave small
+    slivers between tracts.
+    """
+    try:
+        return geometry.simplify_coverage(tolerance)
+    except (AttributeError, ImportError, NotImplementedError):
+        print("[WARN] Coverage simplification unavailable; using per-polygon simplify")
+        return geometry.simplify(tolerance, preserve_topology=True)
+
+
 def save_desert_parquet(
     gdf: gpd.GeoDataFrame,
     output_path: Path = None
@@ -186,11 +201,11 @@ def export_desert_geojson(
         output_path = GEOJSON_DIR / "charging_deserts.geojson"
 
     web = gdf.to_crs("EPSG:3310").copy()
+    # Internal columns that are not useful on the web (ref_x/ref_y are EPSG:3310
+    # metres and would be misread as lon/lat in this EPSG:4326 file).
+    web = web.drop(columns=["ref_x", "ref_y", "ref_point_source"], errors="ignore")
     if simplify_m:
-        if hasattr(web.geometry, "simplify_coverage"):
-            web["geometry"] = web.geometry.simplify_coverage(simplify_m)
-        else:  # geopandas/shapely without coverage support
-            web["geometry"] = web.geometry.simplify(simplify_m, preserve_topology=True)
+        web["geometry"] = simplify_tracts(web.geometry, simplify_m)
     web = web.to_crs(CRS_WEB)
     web["geometry"] = shapely.transform(web.geometry.values, lambda xy: np.round(xy, coord_decimals))
 

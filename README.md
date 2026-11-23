@@ -24,7 +24,7 @@ copy .env.example .env        # Windows
 
 Edit `.env` and add:
 
-- `NREL_API_KEY`: [NREL developer key](https://developer.nrel.gov/signup/) for AFDC EV station data (falls back to the rate-limited `DEMO_KEY`).
+- `NREL_API_KEY`: [NREL developer key](https://developer.nlr.gov/signup/) for AFDC EV station data (falls back to the rate-limited `DEMO_KEY`).
 - `CENSUS_API_KEY`: [Census API key](https://api.census.gov/data/key_signup.html) for ACS demographics (required).
 
 ## Running the pipeline
@@ -71,7 +71,7 @@ python -m pytest
 
 | Layer | Source |
 |-------|--------|
-| EV charging stations | [NREL AFDC API](https://developer.nrel.gov/docs/transportation/alt-fuel-stations-v1/) |
+| EV charging stations | [NREL AFDC API](https://developer.nlr.gov/docs/transportation/alt-fuel-stations-v1/) |
 | Gas stations | [CEC Gas Stations (ArcGIS)](https://services.arcgis.com/BLN4oKB0N1YSgvY8/arcgis/rest/services/CA_GasStations/FeatureServer/0) |
 | Demographics | [Census ACS 2024 5-year](https://www.census.gov/data/developers/data-sets/acs-5year.html) |
 | Tract boundaries, highways | [Census TIGER/Line 2024](https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html) (tracts, primary roads) |
@@ -83,7 +83,7 @@ python -m pytest
 - **Tract metrics** use land area (`ALAND`) for densities. Distances and buffers are measured from each tract's population-weighted centroid. All distances are straight-line (EPSG:3310), not drive distance.
 - **Desert score** (0–100) is a weighted sum of four components: gas access, population density, EV gap, and DCFC distance. Each component is a percentile rank across populated tracts. Severity labels are `severe_desert` (≥ 75), `moderate_desert` (50–75) and `adequate` (< 50). Zero-population and water-only tracts are labelled `not_scored`.
 - **Conversion score** (0–100) combines the tract desert score (30 points), distance to the nearest open DCFC (25), population-density percentile plus highway proximity (20), and a flat 15-point site-suitability placeholder. It subtracts up to 10 points for nearby competing gas stations and up to 10 for a planned DCFC within 5 km. The placeholder affects absolute scores but not rankings. The desert score already includes DCFC distance and density, so those factors are partly counted twice by design.
-- **Sensitivity**: each scenario re-scores tracts and candidates from scratch, varying one weight at a time (0.5x to 2x), equal weights, gas-access buffer, redundancy radius, EV supply metric, and normalization method. A candidate is marked stable if it stays near the top across scenarios.
+- **Sensitivity**: each scenario re-scores tracts and candidates from scratch, varying one weight at a time (raw weight ×0.5 to ×2, then renormalized; effective weights are in `sensitivity_scenarios.csv`), equal weights, gas-access buffer, redundancy radius, EV supply metric, and normalization method. A candidate is marked stable if it ranks in the top 20 in at least half the scenarios, or in the top 50 in all of them.
 
 ## Status
 

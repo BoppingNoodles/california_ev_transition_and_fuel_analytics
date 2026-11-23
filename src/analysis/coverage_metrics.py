@@ -109,6 +109,9 @@ def prepare_tract_base(
 
     # County name from the ACS NAME field, e.g.
     # "Census Tract 4001; Alameda County; California" -> "Alameda"
+    # The raw ACS 'county' column is a FIPS code ('001'); drop it so 'county'
+    # only ever holds a name (or is null when NAME is unavailable).
+    demographics = demographics.drop(columns=["county"], errors="ignore")
     if "NAME" in demographics.columns:
         demographics["county"] = demographics["NAME"].map(parse_county_name)
 

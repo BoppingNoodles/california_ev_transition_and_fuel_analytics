@@ -70,3 +70,25 @@ def test_stability_counts_scenarios(tract_metrics, candidate_base, gas_stations)
     assert stability["top20_count"].between(0, len(scenarios)).all()
     # With genuinely different scenarios, not every station has identical ranks everywhere
     assert (stability["rank_std"] > 0).any()
+
+
+def test_stability_threshold_scales_with_scenario_count():
+    # 10 scenarios: station "a" is top-20 in 4 of them (40%), "b" in 5 (50%)
+    ranked = []
+    for k in range(10):
+        ranked.append(pd.DataFrame({
+            "station_id": ["a", "b"],
+            f"score_s{k}": [1.0, 1.0],
+            f"rank_s{k}": [1 if k < 4 else 100, 1 if k < 5 else 100],
+        }))
+    out = summarize_candidate_stability(ranked).set_index("station_id")
+    assert not out.loc["a", "stable_candidate"]
+    assert out.loc["b", "stable_candidate"]
+
+
+def test_scenario_metadata_reports_effective_weights():
+    from analysis.phase5_delivery import scenario_metadata
+
+    meta = scenario_metadata(default_scenarios()).set_index("name")
+    assert meta[["w_gas", "w_pop", "w_ev", "w_dcfc"]].sum(axis=1).round(9).eq(1).all()
+    assert meta.loc["ev_gap_high", "w_ev"] == pytest.approx(0.525 / 1.175)
