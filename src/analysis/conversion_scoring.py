@@ -235,9 +235,16 @@ def calculate_gas_conv(
     # Nearest DCFC distance
     gdf['pts_dcfc_dist'] = np.minimum(gdf['nearest_dcfc_km'].fillna(15.0), 15.0) / 15.0 * 25.0
 
-    # Population and corridor context
-    max_pop = gdf['total_population'].max() if gdf['total_population'].max() > 0 else 1.0
-    norm_pop = gdf['total_population'].fillna(0) / max_pop 
+    # Population and corridor context. Census tracts are drawn to hold
+    # roughly similar populations, so raw tract population says little about
+    # local demand; use the percentile rank of tract population density
+    # across candidate sites instead (stations outside a scored tract get 0).
+    density = pd.to_numeric(gdf['population_density'], errors='coerce')
+    n_valid = density.notna().sum()
+    if n_valid > 1:
+        norm_pop = ((density.rank(method='average') - 1) / (n_valid - 1)).fillna(0)
+    else:
+        norm_pop = pd.Series(0.0, index=gdf.index)
 
     if 'nearest_highway_km' in gdf.columns and gdf['nearest_highway_km'].notna().any():
         pts_pop = norm_pop * 12.0
