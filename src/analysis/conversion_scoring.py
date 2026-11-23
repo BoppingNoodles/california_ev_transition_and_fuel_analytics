@@ -58,6 +58,18 @@ def load_data(
 
     return gas_gdf, ev_gdf, deserts_gdf, highways_gdf
 
+
+def load_planned(path: Path = None) -> gpd.GeoDataFrame | None:
+    """Loads planned (not yet open) EV stations, if the cleaning step produced them."""
+    if path is None:
+        path = PROCESSED_DIR / "ev_stations_planned.parquet"
+    if not path.exists():
+        print(f"[WARN] {path.name} not found; planned-infrastructure penalty will be 0")
+        return None
+    planned = gpd.read_parquet(path).to_crs(CRS_ANALYSIS)
+    print(f"Loaded {len(planned)} planned EV stations")
+    return planned
+
 ### Attach gas stations to tracts
 def gas_to_tracts(
     gas: gpd.GeoDataFrame,
@@ -182,6 +194,50 @@ def nearest_highway(
     
     return gas
 
+### Planned infrastructure
+def planned_dcfc_penalty(
+    gas: gpd.GeoDataFrame,
+    planned: gpd.GeoDataFrame = None,
+    full_penalty_km: float = 2.0,
+    partial_penalty_km: float = 5.0,
+    max_penalty: float = 10.0,
+) -> gpd.GeoDataFrame:
+    """
+    Penalizes sites that already have a planned (AFDC status 'P') DCFC
+    nearby: the full penalty within `full_penalty_km`, half within
+    `partial_penalty_km`, otherwise 0. Adds `nearest_planned_dcfc_km` and
+    `planned_infra_penalty`.
+    """
+    gas = gas.copy()
+    if planned is None or planned.empty or 'dcfc_ports' not in planned.columns:
+        gas['nearest_planned_dcfc_km'] = np.nan
+        gas['planned_infra_penalty'] = 0.0
+        return gas
+
+    planned_dcfc = planned[planned['dcfc_ports'] > 0].to_crs(gas.crs)
+    if planned_dcfc.empty:
+        gas['nearest_planned_dcfc_km'] = np.nan
+        gas['planned_infra_penalty'] = 0.0
+        return gas
+
+    nearest = gpd.sjoin_nearest(
+        gas[['station_id', 'geometry']],
+        planned_dcfc[['geometry']],
+        how='left',
+        distance_col='distance_meters'
+    ).drop_duplicates(subset=['station_id'])
+    nearest['nearest_planned_dcfc_km'] = nearest['distance_meters'] / 1000.0
+    gas = gas.merge(nearest[['station_id', 'nearest_planned_dcfc_km']], on='station_id', how='left')
+
+    dist = gas['nearest_planned_dcfc_km']
+    gas['planned_infra_penalty'] = np.select(
+        [dist <= full_penalty_km, dist <= partial_penalty_km],
+        [max_penalty, max_penalty / 2.0],
+        default=0.0,
+    )
+    return gas
+
+
 def generate_rationale(row: pd.Series) -> str:
     """Builds a readable rationale string summarizing top score drivers for candidate site."""
     reasons = []
@@ -260,8 +316,10 @@ def calculate_gas_conv(
     if 'redundancy_penalty' not in gdf.columns:
         gdf['redundancy_penalty'] = np.minimum(gdf['nearby_gas_1km'].fillna(0) * 3.33, 10.0)
 
-    # Planned Infrastructure Penalty
-    gdf['planned_infra_penalty'] = 0.0
+    # Planned Infrastructure Penalty (see planned_dcfc_penalty)
+    if 'planned_infra_penalty' not in gdf.columns:
+        gdf['planned_infra_penalty'] = 0.0
+    gdf['planned_infra_penalty'] = gdf['planned_infra_penalty'].fillna(0.0)
 
     # Combine score components and clamp
     gdf['raw_score'] = (
@@ -301,6 +359,9 @@ if __name__ == "__main__":
 
     print("Finding nearest highway to gas station...")
     gas = nearest_highway(gas, highways)
+
+    print("Checking for planned DCFC near each gas station...")
+    gas = planned_dcfc_penalty(gas, load_planned())
 
     print("Calculating final conversion scores...")
     gas = calculate_gas_conv(gas)   
