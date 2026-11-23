@@ -7,7 +7,9 @@ import sys
 
 import folium
 import geopandas as gpd
+import numpy as np
 import pandas as pd
+import shapely
 from folium.plugins import FastMarkerCluster
 
 try:
@@ -33,6 +35,19 @@ function (row) {
 """
 
 
+def _simplify_for_map(tracts: gpd.GeoDataFrame, tolerance_m: float, decimals: int = 5) -> gpd.GeoDataFrame:
+    """Coverage-simplifies tract outlines in metres and rounds coordinates (5 decimals ~ 1 m)."""
+    out = tracts.to_crs("EPSG:3310")
+    if tolerance_m:
+        if hasattr(out.geometry, "simplify_coverage"):
+            out["geometry"] = out.geometry.simplify_coverage(tolerance_m)
+        else:
+            out["geometry"] = out.geometry.simplify(tolerance_m, preserve_topology=True)
+    out = out.to_crs(CRS_WEB)
+    out["geometry"] = shapely.transform(out.geometry.values, lambda xy: np.round(xy, decimals))
+    return out
+
+
 def _first_column(frame: pd.DataFrame, names: list[str], required: bool = True) -> str | None:
     for name in names:
         if name in frame:
@@ -48,6 +63,7 @@ def build_map(
     ev_path: Path | None = None,
     output_path: Path | None = None,
     top_n: int = 50,
+    map_simplify_m: float = 150.0,
 ) -> Path:
     deserts_path = deserts_path or GEOJSON_DIR / "charging_deserts.geojson"
     candidates_path = candidates_path or TABLES_DIR / "conversion_candidates.csv"
@@ -73,12 +89,13 @@ def build_map(
     m = folium.Map(location=center, zoom_start=6, tiles="OpenStreetMap", control_scale=True)
     score_col = _first_column(deserts, ["desert_score"], required=True)
     severity_col = _first_column(deserts, ["severity_score", "severity"], required=False)
-    # Only the ID, score and severity are needed on the map; simplifying tract
-    # outlines (~50 m tolerance) cuts the embedded GeoJSON size substantially.
+    # Only the ID, score and severity are needed on the map. Outlines get a
+    # coarser, map-only simplification; it is coverage-aware so neighbouring
+    # tracts keep identical shared edges (plain per-polygon simplify opens
+    # slivers between tracts).
     geoid_col = _first_column(deserts, ["GEOID", "geoid"])
     map_cols = [c for c in [geoid_col, score_col, severity_col] if c]
-    deserts = deserts[map_cols + ["geometry"]].copy()
-    deserts["geometry"] = deserts.geometry.simplify(0.0005, preserve_topology=True)
+    deserts = _simplify_for_map(deserts[map_cols + ["geometry"]], map_simplify_m)
     folium.Choropleth(
         geo_data=deserts.to_json(), data=deserts, columns=[geoid_col, score_col],
         key_on=f"feature.properties.{geoid_col}",
