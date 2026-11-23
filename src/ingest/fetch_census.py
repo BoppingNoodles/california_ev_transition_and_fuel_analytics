@@ -14,10 +14,11 @@ from config import RAW_DIR, TODAY_STR, CENSUS_API_KEY
 def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     """Fetches California ACS (American Community Survey) 2024 data from API and saves it as CSV"""
     if not CENSUS_API_KEY:
-        print("[ERROR]: CENSUS_API_KEY is not set in your .env file or environment.")
-        print("Please sign up for a free Census API key at: https://api.census.gov/data/key_signup.html")
-        print("Then add 'CENSUS_API_KEY=your_key_here' to your .env file and restart your kernel.")
-        sys.exit(1)
+        raise RuntimeError(
+            "CENSUS_API_KEY is not set in your .env file or environment. "
+            "Sign up for a free key at https://api.census.gov/data/key_signup.html, "
+            "add 'CENSUS_API_KEY=your_key_here' to .env, and restart your kernel."
+        )
 
     if output_path is None:
         output_path = RAW_DIR / f"census_data_{TODAY_STR}.csv"
@@ -31,7 +32,7 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
         "key": CENSUS_API_KEY
     }
     print(f"Fetching 2024 ACS California 5-year demographics...")
-    response = requests.get(api_url, params=params)
+    response = requests.get(api_url, params=params, timeout=120)
     response.raise_for_status()
 
 
@@ -49,11 +50,15 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     # Construct GEOID
     df["GEOID"] = df["state"] + df["county"] + df["tract"]
 
-    # Clean data types
-    df["total_population"] = pd.to_numeric(df["total_population"], errors='coerce').fillna(0).astype(int)
-    df["median_income"] = pd.to_numeric(df["median_income"], errors="coerce")
-    df["total_households"] = pd.to_numeric(df["total_households"], errors="coerce").fillna(0).astype(int)
-    df["no_vehicle_households"] = pd.to_numeric(df["no_vehicle_households"], errors="coerce").fillna(0).astype(int)
+    # Clean data types. ACS encodes missing/suppressed estimates as large
+    # negative sentinels (e.g. -666666666 for "not computable"), so any
+    # negative value is treated as missing rather than as a real number.
+    value_cols = ["total_population", "median_income", "total_households", "no_vehicle_households"]
+    for col in value_cols:
+        values = pd.to_numeric(df[col], errors="coerce")
+        df[col] = values.where(values >= 0)
+    for col in ["total_population", "total_households", "no_vehicle_households"]:
+        df[col] = df[col].astype("Int64")
 
     df.to_csv(output_path, index=False)
     print(f"Success! Saved California 2024 ACS 5-year demographics to {output_path}")
@@ -87,9 +92,36 @@ def download_ca_tract_geometries(output_dir: Path = None) -> Path:
     print(f"Success! Extracted Census tract shapefiles to {output_dir}")
     return output_dir
 
+CENPOP_TRACT_URL = "https://www2.census.gov/geo/docs/reference/cenpop2020/tract/CenPop2020_Mean_TR06.txt"
+
+
+def download_population_centroids(output_path: Path = None) -> Path:
+    """Downloads 2020 population-weighted tract centroids for California.
+
+    Distances measured from a tract's geometric centroid can start in empty
+    land for large rural tracts; the population-weighted centroid is where
+    residents actually are. 2020 tract definitions are unchanged in the 2024
+    TIGER tract file used here.
+    """
+    if output_path is None:
+        from config import EXTERNAL_DIR
+        output_path = EXTERNAL_DIR / "cenpop2020_tract_centroids_06.csv"
+
+    print(f"Downloading population-weighted tract centroids from {CENPOP_TRACT_URL}...")
+    resp = requests.get(CENPOP_TRACT_URL, timeout=120)
+    resp.raise_for_status()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # utf-8-sig strips the byte-order mark the Census file starts with
+    output_path.write_text(resp.content.decode("utf-8-sig"), encoding="utf-8")
+    print(f"Success! Saved population-weighted centroids to {output_path}")
+    return output_path
+
+
 if __name__ == "__main__":
     fetch_acs_ca_demographics_2024()
     download_ca_tract_geometries()
+    download_population_centroids()
 
 
     

@@ -2,6 +2,7 @@
 This file associates infrastructure points with Census tracts and calculates
 accessibility metrics
 """
+import re
 import sys
 from pathlib import Path
 import pandas as pd
@@ -18,8 +19,7 @@ def load_tracts(tracts_dir: Path=None) -> gpd.GeoDataFrame:
     
     shp_files = list(tracts_dir.glob('*.shp'))
     if not shp_files:
-        print(f"[ERROR] No shp files found at {tracts_dir}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No tract shapefile found in {tracts_dir}. Run src/ingest/fetch_census.py first.")
     
     tracts = gpd.read_file(shp_files[0])
     print(f"Found {len(tracts)} tracts at {tracts_dir}")
@@ -31,8 +31,7 @@ def load_demographics(dir: Path=RAW_DIR) -> pd.DataFrame:
     census_files = sorted(dir.glob('census_data_*.csv'))
 
     if not census_files:
-        print(f"[ERROR] No census files found at {dir}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No census_data_*.csv found in {dir}. Run src/ingest/fetch_census.py first.")
 
     census_csv = pd.read_csv(census_files[-1], dtype={"GEOID": str, "state": str, "county": str, "tract":str})
 
@@ -77,6 +76,17 @@ def align_crs(tracts: gpd.GeoDataFrame,
 
     return tracts_proj, ev_proj, gas_proj
 
+def parse_county_name(acs_name) -> str | None:
+    """Extracts the county name from an ACS tract NAME (';' or ',' separated)."""
+    if not isinstance(acs_name, str):
+        return None
+    for part in re.split(r"[;,]", acs_name):
+        part = part.strip()
+        if part.endswith(" County"):
+            return part[: -len(" County")]
+    return None
+
+
 ### Prepare tract base
 def prepare_tract_base(
     tracts: gpd.GeoDataFrame,
@@ -87,7 +97,8 @@ def prepare_tract_base(
     area and population density, and flag zero/null-population tracts.
     """
     # Keep only the columns we need from the tract shapefile
-    tract_base = tracts[["GEOID", "geometry"]].copy()
+    keep = ["GEOID", "ALAND", "geometry"] if "ALAND" in tracts.columns else ["GEOID", "geometry"]
+    tract_base = tracts[keep].copy()
 
     # Ensure GEOID is a string on both sides to prevent silent join mismatches
     tract_base["GEOID"] = tract_base["GEOID"].astype(str)
@@ -96,8 +107,16 @@ def prepare_tract_base(
 
     n_before = len(tract_base)
 
+    # County name from the ACS NAME field, e.g.
+    # "Census Tract 4001; Alameda County; California" -> "Alameda"
+    # The raw ACS 'county' column is a FIPS code ('001'); drop it so 'county'
+    # only ever holds a name (or is null when NAME is unavailable).
+    demographics = demographics.drop(columns=["county"], errors="ignore")
+    if "NAME" in demographics.columns:
+        demographics["county"] = demographics["NAME"].map(parse_county_name)
+
     # Left-join so every tract geometry is preserved even if ACS data is missing
-    acs_cols = ["GEOID", "total_population", "median_income"]
+    acs_cols = [c for c in ["GEOID", "county", "total_population", "median_income"] if c in demographics.columns]
     tract_base = tract_base.merge(
         demographics[acs_cols], on="GEOID", how="left"
     )
@@ -108,8 +127,17 @@ def prepare_tract_base(
     print(f"Tracts after join  : {n_after}")
     print(f"Tracts with ACS pop: {n_matched}  |  missing: {n_after - n_matched}")
 
-    # Area in square kilometres (geometry is in EPSG:3310 metres)
-    tract_base["tract_area_sq_km"] = tract_base.geometry.area / 1_000_000
+    # Area in square kilometres. TIGER tract polygons include water (bays,
+    # lakes, ocean out to the 3-mile line), which deflates densities in
+    # coastal tracts, so densities use land area (ALAND, in m^2) when
+    # available. Total polygon area is kept for reference.
+    tract_base["tract_total_area_sq_km"] = tract_base.geometry.area / 1_000_000
+    if "ALAND" in tract_base.columns:
+        tract_base["tract_area_sq_km"] = pd.to_numeric(tract_base["ALAND"], errors="coerce") / 1_000_000
+        tract_base = tract_base.drop(columns=["ALAND"])
+    else:
+        print("[WARN] ALAND not in tract file; using total polygon area (includes water)")
+        tract_base["tract_area_sq_km"] = tract_base["tract_total_area_sq_km"]
 
     # Population density — guard against zero/null area
     tract_base["population_density"] = (
@@ -184,23 +212,78 @@ def agg_gas(
 
     return tract_base
 
-### Calculate gas access near centroids
+### Tract reference points (population-weighted centroids)
+def add_reference_points(
+    tract_base: gpd.GeoDataFrame,
+    centroids_path: Path = None,
+) -> gpd.GeoDataFrame:
+    """
+    Adds `ref_x` / `ref_y` (in the tract CRS) marking where each tract's
+    residents are, used as the origin for distance and buffer metrics.
+
+    Uses the Census 2020 population-weighted centroid when available and
+    falls back to `representative_point()`, which (unlike the geometric
+    centroid) is guaranteed to fall inside the tract polygon.
+    """
+    if centroids_path is None:
+        centroids_path = EXTERNAL_DIR / "cenpop2020_tract_centroids_06.csv"
+
+    tract_base = tract_base.copy()
+    fallback = tract_base.geometry.representative_point()
+    ref = gpd.GeoSeries(fallback.values, index=tract_base.index, crs=tract_base.crs)
+    source = pd.Series("representative_point", index=tract_base.index)
+
+    if centroids_path.exists():
+        cenpop = pd.read_csv(centroids_path, dtype={"STATEFP": str, "COUNTYFP": str, "TRACTCE": str})
+        cenpop["GEOID"] = cenpop["STATEFP"].str.zfill(2) + cenpop["COUNTYFP"].str.zfill(3) + cenpop["TRACTCE"].str.zfill(6)
+        pts = gpd.GeoDataFrame(
+            cenpop[["GEOID"]],
+            geometry=gpd.points_from_xy(cenpop["LONGITUDE"], cenpop["LATITUDE"]),
+            crs="EPSG:4326",
+        ).to_crs(tract_base.crs)
+        lookup = pts.set_index("GEOID").geometry
+        matched = tract_base["GEOID"].astype(str).map(lookup)
+        has_match = matched.notna()
+        ref[has_match] = gpd.GeoSeries(matched[has_match].values, index=matched[has_match].index, crs=tract_base.crs)
+        source[has_match] = "population_weighted"
+    else:
+        print(f"[WARN] {centroids_path.name} not found; using representative points for all tracts")
+
+    tract_base["ref_x"] = ref.x
+    tract_base["ref_y"] = ref.y
+    tract_base["ref_point_source"] = source
+    print(f"Reference points: {source.value_counts().to_dict()}")
+    return tract_base
+
+
+def reference_points(tract_base: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Returns a GEOID + point GeoDataFrame of each tract's reference point."""
+    if {"ref_x", "ref_y"}.issubset(tract_base.columns):
+        geometry = gpd.points_from_xy(tract_base["ref_x"], tract_base["ref_y"])
+    else:
+        geometry = tract_base.geometry.representative_point().values
+    return gpd.GeoDataFrame(tract_base[["GEOID"]].copy(), geometry=geometry, crs=tract_base.crs)
+
+
+### Calculate gas access near tract reference points
 def gas_access(
     gas: gpd.GeoDataFrame,
-    tract_base: gpd.GeoDataFrame
+    tract_base: gpd.GeoDataFrame,
+    buffer_m: float = 2000.0,
 ) -> gpd.GeoDataFrame:
-    """Calculates gas access near tract centroids (within 2 kilometers of each centroid)"""
+    """
+    Counts gas stations within `buffer_m` metres of each tract's reference
+    point and stores it in `gas_access_count_2km` (the column name is kept
+    stable so downstream scoring works for any buffer size).
+    """
+    tract_base = tract_base.drop(columns=["gas_access_count_2km"], errors="ignore")
 
-    # Create tract centroids geometries in EPSG:3310
-    centroids = tract_base.copy()
-    centroids['geometry'] = tract_base.geometry.centroid
-
-    # Create a 2 km buffer around each centroid
-    buffer = centroids.copy()
-    buffer['geometry'] = centroids.geometry.buffer(2000) # in meters
+    # Buffer around each tract reference point (EPSG:3310, metres)
+    buffer = reference_points(tract_base)
+    buffer['geometry'] = buffer.geometry.buffer(buffer_m)
 
     # Spatial join
-    joined = gpd.sjoin(gas,buffer,predicate="intersects")
+    joined = gpd.sjoin(gas[['station_id', 'geometry']], buffer, predicate="intersects")
 
     # Count nearby gas stations
     gas_counts = joined.groupby('GEOID').agg(
@@ -211,11 +294,7 @@ def gas_access(
     tract_base = tract_base.merge(gas_counts, on='GEOID', how='left')
 
     # Fill in missing counts with 0
-    fill_cols = ['gas_access_count_2km']
-    tract_base[fill_cols] = tract_base[fill_cols].fillna(0)
-
-    # Quality checks
-    print(f"How many times there are less gas stations within 2 km than total gas stations in tract: {sum(tract_base['gas_access_count_2km'] < tract_base['gas_station_count'])}")
+    tract_base['gas_access_count_2km'] = tract_base['gas_access_count_2km'].fillna(0)
 
     return tract_base
 
@@ -224,15 +303,14 @@ def calculate_nearest_dcfc(
     ev: gpd.GeoDataFrame,
     tract_base: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
-    """Calculates nearest DCFC distance from each tract centroid"""
+    """Calculates straight-line distance to the nearest DCFC from each tract reference point"""
 
     # Filter EV stations where dcfc_ports > 0
     ev_stations = ev.copy()
     ev_stations = ev_stations[ev_stations['dcfc_ports'] > 0]
 
-    # Get centroid of each tract
-    centroids = tract_base.copy()
-    centroids['geometry'] = tract_base.geometry.centroid
+    # Population-weighted reference point of each tract
+    centroids = reference_points(tract_base)
 
     # Calculate nearest neighbor distance using sjoin_nearest
     nearest = gpd.sjoin_nearest(
@@ -302,6 +380,7 @@ if __name__ == "__main__":
     tract_base = prepare_tract_base(tracts_proj, demographics)
     print("\nStep 2 complete — tract base prepared with demographics and area metrics.")
     print(tract_base[["GEOID", "total_population", "tract_area_sq_km", "population_density"]].head(2))
+    tract_base = add_reference_points(tract_base)
 
     # Step 3: Aggregate EV infrastructure
     tract_base = agg_ev(ev_proj, tract_base)
@@ -313,9 +392,9 @@ if __name__ == "__main__":
     print("\nStep 4 complete — Gas infrastructure aggregated to tracts.")
     print(tract_base[["GEOID", "gas_station_count"]].head(2))
 
-    # Step 5: Gas access near tract centroids (2 km buffer)
-    tract_base = gas_access(gas_proj, tract_base)
-    print("\nStep 5 complete — Gas access within 2 km of centroids calculated.")
+    # Step 5: Gas access near tract reference points (2 km buffer)
+    tract_base = gas_access(gas_proj, tract_base, buffer_m=2000)
+    print("\nStep 5 complete — Gas access within 2 km of population-weighted centroids calculated.")
     print(tract_base[["GEOID", "gas_access_count_2km"]].head(2))
 
     # Step 6: Calculate distance to nearest DCFC station

@@ -1,9 +1,21 @@
-"""Reusable Phase 5 sensitivity-analysis and delivery helpers."""
+"""Reusable Phase 5 sensitivity-analysis and delivery helpers.
+
+Each scenario re-runs the parts of the model it changes:
+
+1. tract desert scoring (weights, EV supply metric, normalization method,
+   gas-access buffer size), then
+2. conversion-candidate scoring against that scenario's tract scores
+   (redundancy radius), then
+3. ranking.
+
+Candidate stability is computed from those scenario-specific rankings.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+import math
 import sys
 
 import geopandas as gpd
@@ -16,6 +28,8 @@ try:
         compute_desert_components,
         compute_desert_score,
     )
+    from .coverage_metrics import gas_access
+    from .conversion_scoring import score_candidates
 except ImportError:  # Supports direct execution by file path.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from desert_detection import (  # type: ignore[no-redef]
@@ -23,15 +37,20 @@ except ImportError:  # Supports direct execution by file path.
         compute_desert_components,
         compute_desert_score,
     )
+    from coverage_metrics import gas_access  # type: ignore[no-redef]
+    from conversion_scoring import score_candidates  # type: ignore[no-redef]
+
+CRS_ANALYSIS = "EPSG:3310"
+BASELINE_GAS_BUFFER_KM = 2.0
 
 
 @dataclass(frozen=True)
 class Scenario:
     name: str
-    gas_access_buffer_km: float = 2.0
+    gas_access_buffer_km: float = BASELINE_GAS_BUFFER_KM
     redundancy_buffer_km: float = 1.0
     ev_supply_metric: str = "ports_per_sq_km"
-    normalization_scope: str = "statewide"
+    normalization: str = "percentile"
     w_gas: float = 0.25
     w_pop: float = 0.25
     w_ev: float = 0.35
@@ -46,15 +65,27 @@ class Scenario:
 
 
 def default_scenarios() -> list[Scenario]:
+    """
+    Baseline plus one-at-a-time perturbations. Weight scenarios multiply a
+    single raw weight by 0.5x, 1.5x or 2x and then renormalize all weights
+    to sum to 1, so the effective change in that weight's share is smaller
+    than the raw factor (e.g. ev_gap_high: 0.35 -> ~0.45). The effective
+    weights are written to sensitivity_scenarios.csv by scenario_metadata().
+    """
     return [
         Scenario("baseline"),
-        Scenario("ev_gap_high", w_gas=.25, w_pop=.25, w_ev=.385, w_dcfc=.15),
-        Scenario("dcfc_distance_high", w_gas=.25, w_pop=.25, w_ev=.35, w_dcfc=.165),
-        Scenario("gas_access_high", w_gas=.275, w_pop=.25, w_ev=.35, w_dcfc=.15),
+        Scenario("ev_gap_high", w_ev=0.35 * 1.5),
+        Scenario("ev_gap_low", w_ev=0.35 * 0.5),
+        Scenario("dcfc_distance_high", w_dcfc=0.15 * 2),
+        Scenario("dcfc_distance_low", w_dcfc=0.15 * 0.5),
+        Scenario("gas_access_low", w_gas=0.25 * 0.5),
+        Scenario("pop_density_low", w_pop=0.25 * 0.5),
+        Scenario("equal_weights", w_gas=0.25, w_pop=0.25, w_ev=0.25, w_dcfc=0.25),
         Scenario("gas_buffer_5km", gas_access_buffer_km=5),
         Scenario("redundancy_2km", redundancy_buffer_km=2),
         Scenario("dcfc_only_supply", ev_supply_metric="dcfc_per_1000"),
         Scenario("per_capita_supply", ev_supply_metric="ports_per_1000"),
+        Scenario("minmax_normalization", normalization="minmax"),
     ]
 
 
@@ -73,9 +104,27 @@ def _metric_column(gdf: pd.DataFrame, metric: str) -> str:
     raise KeyError(f"No column available for EV supply metric {metric!r}")
 
 
-def score_desert_scenario(metrics: gpd.GeoDataFrame, scenario: Scenario) -> gpd.GeoDataFrame:
-    """Score tracts under one scenario while retaining transparent components."""
+def score_desert_scenario(
+    metrics: gpd.GeoDataFrame,
+    scenario: Scenario,
+    gas: gpd.GeoDataFrame | None = None,
+) -> gpd.GeoDataFrame:
+    """
+    Score tracts under one scenario while retaining transparent components.
+
+    `metrics` is the Phase 3 tract coverage metrics layer. `gas` (cleaned gas
+    stations) is required when the scenario changes the gas-access buffer,
+    because gas access is then recounted around each tract's reference point.
+    """
     df = metrics.copy()
+    if df.crs is not None and df.crs != CRS_ANALYSIS:
+        df = df.to_crs(CRS_ANALYSIS)
+
+    if scenario.gas_access_buffer_km != BASELINE_GAS_BUFFER_KM:
+        if gas is None:
+            raise ValueError(f"Scenario {scenario.name!r} changes the gas-access buffer; pass the gas station layer")
+        df = gas_access(gas.to_crs(df.crs), df, buffer_m=scenario.gas_access_buffer_km * 1000.0)
+
     # Derive optional sensitivity metrics from the Phase 3 columns when they
     # were not persisted as dedicated fields.
     if scenario.ev_supply_metric == "dcfc_ports_per_sq_km" and "dcfc_ports_per_sq_km" not in df:
@@ -94,14 +143,56 @@ def score_desert_scenario(metrics: gpd.GeoDataFrame, scenario: Scenario) -> gpd.
             df["dcfc_per_1000"] = pd.to_numeric(df["dcfc_ports"], errors="coerce").fillna(0) / population * 1000
     metric = _metric_column(df, scenario.ev_supply_metric)
     if metric != "ports_per_sq_km":
+        # The EV-gap component reads ports_per_sq_km; substitute the scenario's metric.
         df["ports_per_sq_km"] = pd.to_numeric(df[metric], errors="coerce").fillna(0)
-    components = compute_desert_components(df)
+    components = compute_desert_components(df, method=scenario.normalization)
     scored = compute_desert_score(components, **scenario.weights())
     return add_severity_labels(scored)
 
 
+def score_candidate_scenario(
+    candidate_base: gpd.GeoDataFrame,
+    scored_tracts: gpd.GeoDataFrame,
+    scenario: Scenario,
+) -> gpd.GeoDataFrame:
+    """Re-score conversion candidates against one scenario's tract scores."""
+    return score_candidates(
+        candidate_base,
+        scored_tracts,
+        redundancy_radius_m=scenario.redundancy_buffer_km * 1000.0,
+    )
+
+
+def run_sensitivity(
+    metrics: gpd.GeoDataFrame,
+    candidate_base: gpd.GeoDataFrame,
+    gas: gpd.GeoDataFrame,
+    scenarios: list[Scenario] | None = None,
+) -> tuple[dict[str, gpd.GeoDataFrame], list[pd.DataFrame], dict[str, str]]:
+    """
+    Runs every scenario end to end.
+
+    Returns (tract results by scenario, per-scenario candidate rankings,
+    skipped scenarios with the reason).
+    """
+    scenarios = scenarios or default_scenarios()
+    tract_results: dict[str, gpd.GeoDataFrame] = {}
+    ranked: list[pd.DataFrame] = []
+    skipped: dict[str, str] = {}
+    for scenario in scenarios:
+        try:
+            tracts = score_desert_scenario(metrics, scenario, gas=gas)
+        except KeyError as exc:
+            skipped[scenario.name] = str(exc)
+            continue
+        tract_results[scenario.name] = tracts
+        candidates = score_candidate_scenario(candidate_base, tracts, scenario)
+        ranked.append(rank_candidates(candidates, scenario.name))
+    return tract_results, ranked, skipped
+
+
 def rank_candidates(candidates: pd.DataFrame, scenario_name: str) -> pd.DataFrame:
-    """Return stable ID, score, and deterministic rank columns for one scenario."""
+    """Return stable ID, score, and deterministic rank columns for one scenario's scored candidates."""
     id_col = "station_id" if "station_id" in candidates else "id"
     score = pd.to_numeric(candidates["final_score"], errors="coerce").fillna(0)
     result = candidates[[id_col]].copy()
@@ -112,8 +203,15 @@ def rank_candidates(candidates: pd.DataFrame, scenario_name: str) -> pd.DataFram
     return result[["station_id", f"score_{scenario_name}", f"rank_{scenario_name}"]]
 
 
-def summarize_candidate_stability(ranked: list[pd.DataFrame]) -> pd.DataFrame:
-    """Merge scenario ranks and calculate top-N stability statistics."""
+def summarize_candidate_stability(ranked: list[pd.DataFrame], top20_share: float = 0.5) -> pd.DataFrame:
+    """
+    Merge scenario ranks and calculate top-N stability statistics.
+
+    A candidate is `stable_candidate` when it ranks in the top 20 in at least
+    `top20_share` of scenarios (rounded up), or in the top 50 in every
+    scenario. The threshold scales with the number of scenarios so adding
+    scenarios does not loosen the bar.
+    """
     merged = ranked[0].copy()
     for frame in ranked[1:]:
         merged = merged.merge(frame, on="station_id", how="outer")
@@ -125,7 +223,8 @@ def summarize_candidate_stability(ranked: list[pd.DataFrame]) -> pd.DataFrame:
     merged["worst_rank"] = ranks.max(axis=1)
     merged["rank_std"] = ranks.std(axis=1).fillna(0)
     scenario_count = len(rank_cols)
-    merged["stable_candidate"] = (merged["top20_count"] >= max(1, min(4, scenario_count))) | (merged["top50_count"] == scenario_count)
+    top20_needed = max(1, math.ceil(top20_share * scenario_count))
+    merged["stable_candidate"] = (merged["top20_count"] >= top20_needed) | (merged["top50_count"] == scenario_count)
     return merged.sort_values(["stable_candidate", "top20_count", "average_rank"], ascending=[False, False, True])
 
 
@@ -140,3 +239,40 @@ def severity_sensitivity(results: dict[str, gpd.GeoDataFrame]) -> pd.DataFrame:
         rows.append({"scenario": name, "tract_count": len(frame), **severity.value_counts().to_dict(),
                      "median_score": frame["desert_score"].median(), "max_score": frame["desert_score"].max()})
     return pd.DataFrame(rows).fillna(0)
+
+
+def run_and_export(scenarios: list[Scenario] | None = None) -> dict[str, Path]:
+    """Loads Phase 3/4 inputs, runs every scenario, and writes the sensitivity tables."""
+    try:
+        from .conversion_scoring import load_data, load_planned, prepare_candidate_base
+    except ImportError:
+        from conversion_scoring import load_data, load_planned, prepare_candidate_base  # type: ignore[no-redef]
+    from config import PROCESSED_DIR, TABLES_DIR  # on sys.path via the analysis modules
+
+    scenarios = scenarios or default_scenarios()
+    metrics = gpd.read_parquet(PROCESSED_DIR / "tract_coverage_metrics.parquet")
+    gas, ev, _, highways = load_data()
+    candidate_base = prepare_candidate_base(gas, ev, highways, load_planned())
+
+    tract_results, ranked, skipped = run_sensitivity(metrics, candidate_base, gas, scenarios)
+    if skipped:
+        print(f"Skipped scenarios: {skipped}")
+
+    TABLES_DIR.mkdir(parents=True, exist_ok=True)
+    paths = {
+        "scenarios": TABLES_DIR / "sensitivity_scenarios.csv",
+        "severity": TABLES_DIR / "severity_sensitivity.csv",
+        "stability": TABLES_DIR / "candidate_stability.csv",
+    }
+    scenario_metadata(scenarios).to_csv(paths["scenarios"], index=False)
+    severity_sensitivity(tract_results).to_csv(paths["severity"], index=False)
+    stability = summarize_candidate_stability(ranked)
+    stability.to_csv(paths["stability"], index=False)
+    print(f"Stable candidates: {int(stability['stable_candidate'].sum())} of {len(stability)}")
+    for path in paths.values():
+        print(f"Saved {path}")
+    return paths
+
+
+if __name__ == "__main__":
+    run_and_export()

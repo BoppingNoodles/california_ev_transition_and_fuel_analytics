@@ -21,11 +21,9 @@ def find_latest_files(directory: Path = RAW_DIR) -> tuple[Path, Path]:
 
     # Guard: check before attempting to index the list
     if not ev_files:
-        print(f"[ERROR] No EV CSV found in {directory}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No afdc_ev_stations_*.csv found in {directory}. Run src/ingest/fetch_afdc.py first.")
     if not gas_files:
-        print(f"[ERROR] No Gas GeoJSON found in {directory}")
-        sys.exit(1)
+        raise FileNotFoundError(f"No cec_gas_stations_*.geojson found in {directory}. Run src/ingest/fetch_gas_stations.py first.")
 
     latest_ev_csv = ev_files[-1]
     latest_gas_geojson = gas_files[-1]
@@ -36,8 +34,19 @@ def find_latest_files(directory: Path = RAW_DIR) -> tuple[Path, Path]:
     return latest_ev_csv, latest_gas_geojson
 
 
-def clean_ev_station(raw_path: Path) -> GeoDataFrame:
-    """Clean raw AFDC EV station CSV into an analysis-ready GeoDataFrame."""
+# AFDC status codes: E = open, P = planned, T = temporarily unavailable
+OPEN_STATUS = ("E",)
+PLANNED_STATUS = ("P",)
+
+
+def clean_ev_station(raw_path: Path, status_codes: tuple[str, ...] | None = OPEN_STATUS) -> GeoDataFrame:
+    """Clean raw AFDC EV station CSV into an analysis-ready GeoDataFrame.
+
+    The AFDC pull uses ``status='all'``, so the raw snapshot contains planned
+    and temporarily unavailable stations. Only stations whose ``status_code``
+    is in ``status_codes`` are kept (default: open stations only). Pass
+    ``None`` to keep every status.
+    """
     df = pd.read_csv(raw_path)
 
     # Standardize column headers to lowercase snake_case
@@ -59,6 +68,12 @@ def clean_ev_station(raw_path: Path) -> GeoDataFrame:
     # Filter to public access stations
     if 'access_code' in df.columns:
         df = df[df['access_code'].str.lower() == 'public'].copy()
+
+    # Filter by operating status (open vs planned vs temporarily unavailable)
+    if status_codes is not None:
+        if 'status_code' not in df.columns:
+            raise KeyError(f"'status_code' column missing from {raw_path.name}; cannot filter by status")
+        df = df[df['status_code'].astype(str).str.upper().isin(status_codes)].copy()
 
     # Convert port counts to numeric (AFDC column names from raw CSV)
     port_cols = {
@@ -152,11 +167,16 @@ def save_processed(gdf: GeoDataFrame, filename: str) -> Path:
 if __name__ == '__main__':
     ev_path, gas_path = find_latest_files()
 
-    print(f"\nCleaning EV stations...")
-    ev_clean = clean_ev_station(ev_path)
-    print(f"  Raw rows read:  (from {ev_path.name})")
+    print(f"\nCleaning EV stations (open only)...")
+    ev_clean = clean_ev_station(ev_path, status_codes=OPEN_STATUS)
+    print(f"  Raw rows read:  {len(pd.read_csv(ev_path))} (from {ev_path.name})")
     print(f"  Clean rows:     {len(ev_clean)}")
     save_processed(ev_clean, "ev_stations.parquet")
+
+    print(f"\nCleaning planned EV stations...")
+    ev_planned = clean_ev_station(ev_path, status_codes=PLANNED_STATUS)
+    print(f"  Planned rows:   {len(ev_planned)}")
+    save_processed(ev_planned, "ev_stations_planned.parquet")
 
     print(f"\nCleaning gas stations...")
     gas_clean = clean_gas_station(gas_path)
