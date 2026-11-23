@@ -87,7 +87,8 @@ def prepare_tract_base(
     area and population density, and flag zero/null-population tracts.
     """
     # Keep only the columns we need from the tract shapefile
-    tract_base = tracts[["GEOID", "geometry"]].copy()
+    keep = ["GEOID", "ALAND", "geometry"] if "ALAND" in tracts.columns else ["GEOID", "geometry"]
+    tract_base = tracts[keep].copy()
 
     # Ensure GEOID is a string on both sides to prevent silent join mismatches
     tract_base["GEOID"] = tract_base["GEOID"].astype(str)
@@ -108,8 +109,17 @@ def prepare_tract_base(
     print(f"Tracts after join  : {n_after}")
     print(f"Tracts with ACS pop: {n_matched}  |  missing: {n_after - n_matched}")
 
-    # Area in square kilometres (geometry is in EPSG:3310 metres)
-    tract_base["tract_area_sq_km"] = tract_base.geometry.area / 1_000_000
+    # Area in square kilometres. TIGER tract polygons include water (bays,
+    # lakes, ocean out to the 3-mile line), which deflates densities in
+    # coastal tracts, so densities use land area (ALAND, in m^2) when
+    # available. Total polygon area is kept for reference.
+    tract_base["tract_total_area_sq_km"] = tract_base.geometry.area / 1_000_000
+    if "ALAND" in tract_base.columns:
+        tract_base["tract_area_sq_km"] = pd.to_numeric(tract_base["ALAND"], errors="coerce") / 1_000_000
+        tract_base = tract_base.drop(columns=["ALAND"])
+    else:
+        print("[WARN] ALAND not in tract file; using total polygon area (includes water)")
+        tract_base["tract_area_sq_km"] = tract_base["tract_total_area_sq_km"]
 
     # Population density — guard against zero/null area
     tract_base["population_density"] = (
