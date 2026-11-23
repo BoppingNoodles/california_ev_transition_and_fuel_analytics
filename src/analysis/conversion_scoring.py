@@ -386,7 +386,10 @@ if __name__ == "__main__":
 
     save_path = PROCESSED_DIR / "conversion_candidates.parquet"
     gas.to_parquet(save_path)
-    gas.to_csv(TABLES_DIR / "conversion_candidates.csv", index=False)
+    # The CSV is for people and the dashboard: latitude/longitude columns
+    # carry location, so drop the projected (EPSG:3310) geometry rather than
+    # writing it as WKT in metres.
+    pd.DataFrame(gas.drop(columns="geometry")).to_csv(TABLES_DIR / "conversion_candidates.csv", index=False)
 
     print(f"Successfully saved conversion candidates parquet file to {save_path}")
 
