@@ -7,6 +7,7 @@ The output is a geojson
 
 import sys
 from pathlib import Path 
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 
@@ -37,26 +38,50 @@ def normalize_coverage_metrics(
         return pd.Series(0.5, index=series.index)
     return (series - s_min) / (s_max - s_min)
 
+COMPONENT_COLS = ['comp_gas_access', 'comp_pop_density', 'comp_ev_gap', 'comp_dcfc_distance']
+
+
+def scorable_tracts(gdf: pd.DataFrame) -> pd.Series:
+    """
+    Boolean mask of tracts that should receive a desert score: tracts with
+    residents and a defined (land-area) population density. Water-only,
+    park and other zero-population tracts are excluded so they neither get
+    labelled as deserts nor distort the normalization of populated tracts.
+    """
+    population = pd.to_numeric(gdf['total_population'], errors='coerce')
+    density = pd.to_numeric(gdf['population_density'], errors='coerce')
+    return (population > 0) & density.notna()
+
+
 ### Build the desert score components
 def compute_desert_components(
     gdf: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
-    """Calculates the 4 normalized component columns on a 0-1 scale"""
+    """
+    Calculates the 4 normalized component columns on a 0-1 scale.
+    Normalization uses scorable (populated) tracts only; other tracts get
+    null components.
+    """
 
     df = gdf.copy()
+    mask = scorable_tracts(df)
+    scored = df.loc[mask]
+
+    for col in COMPONENT_COLS:
+        df[col] = np.nan
 
     # Gas access component
-    df['comp_gas_access'] = normalize_coverage_metrics(df['gas_access_count_2km'])
+    df.loc[mask, 'comp_gas_access'] = normalize_coverage_metrics(scored['gas_access_count_2km'])
 
     # Population density
-    df['comp_pop_density'] = normalize_coverage_metrics(df['population_density'])
+    df.loc[mask, 'comp_pop_density'] = normalize_coverage_metrics(scored['population_density'])
 
     # EV gap component
-    norm_ev_supply = normalize_coverage_metrics(df['ports_per_sq_km'])
-    df['comp_ev_gap'] = 1.0 - norm_ev_supply 
+    norm_ev_supply = normalize_coverage_metrics(scored['ports_per_sq_km'])
+    df.loc[mask, 'comp_ev_gap'] = 1.0 - norm_ev_supply
 
     # DCFC distance component
-    df['comp_dcfc_distance'] = normalize_coverage_metrics(df['nearest_dcfc_km'])
+    df.loc[mask, 'comp_dcfc_distance'] = normalize_coverage_metrics(scored['nearest_dcfc_km'])
 
     return df
 
@@ -91,10 +116,12 @@ def add_severity_labels(
         - `severe_desert`: `desert_score` >= 75
         - `moderate_desert`: 50 <= `desert_score` < 75
         - `adequate`: `desert_score` < 50
+        - `not_scored`: unpopulated / water-only tracts (null `desert_score`)
     """
     df = gdf.copy()
 
-    df['severity_score'] = 'adequate'
+    df['severity_score'] = 'not_scored'
+    df.loc[df['desert_score'] < 50, 'severity_score'] = 'adequate'
     df.loc[(df['desert_score'] >= 50) & (df['desert_score'] < 75), 'severity_score'] = 'moderate_desert'
     df.loc[df['desert_score'] >= 75, 'severity_score'] = 'severe_desert'
     
