@@ -100,7 +100,8 @@ python -m pytest
 
 | File | Contents |
 |------|----------|
-| `outputs/geojson/charging_deserts.geojson` | Tract desert scores, components and severity |
+| `outputs/geojson/charging_deserts.geojson` | Tract desert scores, components and severity (outlines simplified ~50 m for the web) |
+| `data/processed/charging_deserts.parquet` | Same layer at full resolution (EPSG:3310); use this for spatial joins |
 | `outputs/tables/conversion_candidates.csv` | Ranked gas stations with score breakdown and rationale |
 | `outputs/tables/candidate_stability.csv` | Per-scenario ranks and stability flags |
 | `outputs/tables/severity_sensitivity.csv` | Severity counts per scenario |

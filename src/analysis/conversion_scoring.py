@@ -34,14 +34,16 @@ def load_data(
     if ev_path is None:
         ev_path = PROCESSED_DIR / "ev_stations.parquet"
     if deserts_path is None:
-        deserts_path = GEOJSON_DIR / "charging_deserts.geojson"
+        # Full-resolution tracts: the GeoJSON export is simplified for the web,
+        # which would misassign stations near tract boundaries.
+        deserts_path = PROCESSED_DIR / "charging_deserts.parquet"
     if highways_path is None:
         highways_path = PROCESSED_DIR / "highways.parquet"
 
     # Load parquet and geojson layers
     gas_gdf = gpd.read_parquet(gas_path)
     ev_gdf = gpd.read_parquet(ev_path)
-    deserts_gdf = gpd.read_file(deserts_path)
+    deserts_gdf = gpd.read_parquet(deserts_path) if deserts_path.suffix == ".parquet" else gpd.read_file(deserts_path)
 
     if highways_path.exists():
         highways_gdf = gpd.read_parquet(highways_path).to_crs(CRS_ANALYSIS)

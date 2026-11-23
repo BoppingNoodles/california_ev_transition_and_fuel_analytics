@@ -68,3 +68,37 @@ def test_score_is_bounded_0_100():
     scored = compute_desert_score(compute_desert_components(_frame()))
     valid = scored["desert_score"].dropna()
     assert valid.between(0, 100).all()
+
+
+def test_geojson_export_is_simplified_compact_and_gap_free(tmp_path):
+    import json
+
+    import geopandas as gpd
+    from shapely.geometry import Polygon
+
+    from analysis.desert_detection import export_desert_geojson
+
+    # Two tracts sharing a wiggly edge with many small (<50 m) vertices
+    wiggle = [(5_000 + (15 if k % 2 else -15), k * 20) for k in range(0, 251)]
+    left = Polygon([(0, 0)] + wiggle + [(0, 5_000)])
+    right = Polygon([(10_000, 0), (10_000, 5_000)] + wiggle[::-1])
+    gdf = gpd.GeoDataFrame(
+        {"GEOID": ["a", "b"], "desert_score": [80.123456, np.nan], "severity_score": ["severe_desert", "not_scored"]},
+        geometry=[left, right], crs="EPSG:3310",
+    )
+    full = tmp_path / "full.geojson"
+    gdf.to_crs("EPSG:4326").to_file(full, driver="GeoJSON")
+    out = export_desert_geojson(gdf, tmp_path / "web.geojson", simplify_m=50)
+
+    assert out.stat().st_size < full.stat().st_size / 3
+    data = json.loads(out.read_text(encoding="utf-8"))
+    props = [f["properties"] for f in data["features"]]
+    assert props[0]["desert_score"] == 80.1235
+    assert props[1]["desert_score"] is None
+
+    web = gpd.read_file(out).to_crs("EPSG:3310")
+    assert web.is_valid.all()
+    # Shared edge stays shared: no sliver gap or overlap between neighbours
+    union_area = web.geometry.union_all().area
+    assert union_area == pytest.approx(web.area.sum(), rel=1e-6)
+    assert union_area == pytest.approx(gdf.area.sum(), rel=0.01)

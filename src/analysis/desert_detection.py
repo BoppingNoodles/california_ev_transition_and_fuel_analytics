@@ -2,7 +2,9 @@
 This file loads the processed tracts with the coverage metrics, normalizes the 4 metrics
 (gas_access, population_density, ev_gap, dcfc_distance) to a 0-1 scale, computes the 
 composite `desert_score` 0-100 and assigns severity classifications `severe_desert`, `moderate_desert`, 'adequate`.
-The output is a geojson
+Outputs:
+    - data/processed/charging_deserts.parquet (full resolution, EPSG:3310) for analysis
+    - outputs/geojson/charging_deserts.geojson (simplified, EPSG:4326) for the map and dashboard
 """
 
 import sys
@@ -10,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+import shapely
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from config import PROCESSED_DIR, GEOJSON_DIR, CRS_WEB
@@ -145,18 +148,59 @@ def add_severity_labels(
     return df
 
 ### Saved scored tracts to GeoJSON
+def save_desert_parquet(
+    gdf: gpd.GeoDataFrame,
+    output_path: Path = None
+) -> Path:
+    """Saves the full-resolution scored tracts (EPSG:3310) for downstream analysis."""
+    if output_path is None:
+        output_path = PROCESSED_DIR / "charging_deserts.parquet"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_parquet(output_path)
+    print(f"Saved full-resolution desert layer to {output_path}")
+    return output_path
+
+
 def export_desert_geojson(
     gdf: gpd.GeoDataFrame,
-    output_path: Path=None
+    output_path: Path = None,
+    simplify_m: float = 50.0,
+    coord_decimals: int = 5,
+    value_decimals: int = 4,
 ) -> Path:
-    """Reprojects to EPSG:4326 and exports the charging desert layer to GeoJSON"""
+    """
+    Exports a lightweight web copy of the charging desert layer to GeoJSON.
+
+    Full-resolution TIGER tract outlines make this file ~100 MB, which is
+    too heavy for the map and dashboard. The export therefore:
+    - simplifies outlines by `simplify_m` metres in EPSG:3310, using
+      coverage-aware simplification when available so neighbouring tracts
+      keep identical shared edges (no slivers or gaps);
+    - rounds coordinates to `coord_decimals` (5 decimals ~ 1 m) and float
+      properties to `value_decimals`;
+    - writes compact JSON.
+
+    Use the full-resolution parquet (save_desert_parquet) for spatial joins.
+    """
     if output_path is None:
         output_path = GEOJSON_DIR / "charging_deserts.geojson"
 
-    gdf_web = gdf.to_crs(CRS_WEB)
-    
-    gdf_web.to_file(output_path, driver="GeoJSON")
-    print(f"Exported charging deserts GeoJSON to {output_path}")
+    web = gdf.to_crs("EPSG:3310").copy()
+    if simplify_m:
+        if hasattr(web.geometry, "simplify_coverage"):
+            web["geometry"] = web.geometry.simplify_coverage(simplify_m)
+        else:  # geopandas/shapely without coverage support
+            web["geometry"] = web.geometry.simplify(simplify_m, preserve_topology=True)
+    web = web.to_crs(CRS_WEB)
+    web["geometry"] = shapely.transform(web.geometry.values, lambda xy: np.round(xy, coord_decimals))
+
+    float_cols = web.select_dtypes(include="float").columns
+    web[float_cols] = web[float_cols].round(value_decimals)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(web.to_json(drop_id=True, separators=(",", ":")), encoding="utf-8")
+    size_mb = output_path.stat().st_size / 1e6
+    print(f"Exported charging deserts GeoJSON to {output_path} ({size_mb:.1f} MB)")
 
     return output_path
 
@@ -175,6 +219,7 @@ if __name__ == "__main__":
     print("Severity distribution:")
     print(labeled_gdf['severity_score'].value_counts())
 
+    save_desert_parquet(labeled_gdf)
     export_desert_geojson(labeled_gdf)
     print("Phase 3.2 pipeline complete.")
 
