@@ -29,14 +29,30 @@ def load_coverage_metrics(
 
 ### Normalize coverage metrics
 def normalize_coverage_metrics(
-    series: pd.Series
+    series: pd.Series,
+    method: str = "percentile",
 ) -> pd.Series:
-    """Scales a Pandas series to 0-1 range"""
-    s_min = series.min()
-    s_max = series.max()
-    if s_max == s_min:
-        return pd.Series(0.5, index=series.index)
-    return (series - s_min) / (s_max - s_min)
+    """
+    Scales a Pandas series to the 0-1 range.
+
+    - ``percentile`` (default): percentile rank, with ties sharing their
+      average rank. Robust to the heavy right skew of density and port
+      metrics, where a handful of dense downtown tracts would otherwise set
+      the max and compress every other tract toward 0.
+    - ``minmax``: linear (x - min) / (max - min).
+
+    Nulls stay null. A constant series maps to 0.5.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    valid = s.dropna()
+    if valid.empty or valid.max() == valid.min():
+        return pd.Series(np.where(s.notna(), 0.5, np.nan), index=s.index)
+    if method == "percentile":
+        ranks = s.rank(method="average", na_option="keep")
+        return (ranks - 1) / (len(valid) - 1)
+    if method == "minmax":
+        return (s - valid.min()) / (valid.max() - valid.min())
+    raise ValueError(f"Unknown normalization method: {method!r}")
 
 COMPONENT_COLS = ['comp_gas_access', 'comp_pop_density', 'comp_ev_gap', 'comp_dcfc_distance']
 
