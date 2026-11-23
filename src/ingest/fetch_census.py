@@ -31,7 +31,7 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
         "key": CENSUS_API_KEY
     }
     print(f"Fetching 2024 ACS California 5-year demographics...")
-    response = requests.get(api_url, params=params)
+    response = requests.get(api_url, params=params, timeout=120)
     response.raise_for_status()
 
 
@@ -49,11 +49,15 @@ def fetch_acs_ca_demographics_2024(output_path: Path = None) -> Path:
     # Construct GEOID
     df["GEOID"] = df["state"] + df["county"] + df["tract"]
 
-    # Clean data types
-    df["total_population"] = pd.to_numeric(df["total_population"], errors='coerce').fillna(0).astype(int)
-    df["median_income"] = pd.to_numeric(df["median_income"], errors="coerce")
-    df["total_households"] = pd.to_numeric(df["total_households"], errors="coerce").fillna(0).astype(int)
-    df["no_vehicle_households"] = pd.to_numeric(df["no_vehicle_households"], errors="coerce").fillna(0).astype(int)
+    # Clean data types. ACS encodes missing/suppressed estimates as large
+    # negative sentinels (e.g. -666666666 for "not computable"), so any
+    # negative value is treated as missing rather than as a real number.
+    value_cols = ["total_population", "median_income", "total_households", "no_vehicle_households"]
+    for col in value_cols:
+        values = pd.to_numeric(df[col], errors="coerce")
+        df[col] = values.where(values >= 0)
+    for col in ["total_population", "total_households", "no_vehicle_households"]:
+        df[col] = df[col].astype("Int64")
 
     df.to_csv(output_path, index=False)
     print(f"Success! Saved California 2024 ACS 5-year demographics to {output_path}")
