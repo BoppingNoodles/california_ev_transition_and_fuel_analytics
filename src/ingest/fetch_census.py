@@ -91,9 +91,36 @@ def download_ca_tract_geometries(output_dir: Path = None) -> Path:
     print(f"Success! Extracted Census tract shapefiles to {output_dir}")
     return output_dir
 
+CENPOP_TRACT_URL = "https://www2.census.gov/geo/docs/reference/cenpop2020/tract/CenPop2020_Mean_TR06.txt"
+
+
+def download_population_centroids(output_path: Path = None) -> Path:
+    """Downloads 2020 population-weighted tract centroids for California.
+
+    Distances measured from a tract's geometric centroid can start in empty
+    land for large rural tracts; the population-weighted centroid is where
+    residents actually are. 2020 tract definitions are unchanged in the 2024
+    TIGER tract file used here.
+    """
+    if output_path is None:
+        from config import EXTERNAL_DIR
+        output_path = EXTERNAL_DIR / "cenpop2020_tract_centroids_06.csv"
+
+    print(f"Downloading population-weighted tract centroids from {CENPOP_TRACT_URL}...")
+    resp = requests.get(CENPOP_TRACT_URL, timeout=120)
+    resp.raise_for_status()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # utf-8-sig strips the byte-order mark the Census file starts with
+    output_path.write_text(resp.content.decode("utf-8-sig"), encoding="utf-8")
+    print(f"Success! Saved population-weighted centroids to {output_path}")
+    return output_path
+
+
 if __name__ == "__main__":
     fetch_acs_ca_demographics_2024()
     download_ca_tract_geometries()
+    download_population_centroids()
 
 
     
